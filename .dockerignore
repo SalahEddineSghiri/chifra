@@ -1,0 +1,11 @@
+.git
+chiffra-handoff
+docs/cadrage.md
+docs/decisions.md
+docs/validation.md
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage

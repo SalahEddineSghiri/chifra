@@ -1,0 +1,10 @@
+chiffra-handoff/
+.env
+.env.*
+!.env.example
+docs/cadrage.md
+docs/decisions.md
+docs/validation.md
+node_modules/
+dist/
+coverage/
