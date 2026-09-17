@@ -9,7 +9,7 @@ const sourceSchema = z.strictObject({
   row: z.number().int().positive().nullable(),
 });
 
-function observed<T extends z.ZodType>(valueSchema: T) {
+function observed(valueSchema: z.ZodType<string>) {
   return z.strictObject({
     value: valueSchema.nullable(),
     source: sourceSchema.nullable(),
