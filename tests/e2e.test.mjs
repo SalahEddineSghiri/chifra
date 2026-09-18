@@ -8,7 +8,9 @@ import { Pool } from "pg";
 const baseUrl = process.env.BASE_URL ?? "http://web_e2e";
 
 async function json(response) {
-  assert.ok(response.ok, `${response.status} ${await response.text()}`);
+  if (!response.ok) {
+    assert.fail(`${response.status} ${await response.text()}`);
+  }
   return response.json();
 }
 
