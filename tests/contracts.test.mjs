@@ -9,8 +9,24 @@ const source = {
   sourceId: "src-1", page: 1, row: null,
   extractionMethod: "PDF_TEXT", extractionVersion: "poppler-v1",
 };
-const read = (value) => ({ value, source, missingReason: null });
-const missing = (reason) => ({ value: null, source: null, missingReason: reason });
+const read = (value, rawValue = value) => ({
+  value,
+  rawValue,
+  source,
+  missingReason: null,
+  normalization: [],
+  candidates: [{ value, rawValue, source, normalization: [] }],
+  reviewRequired: false,
+});
+const missing = (reason) => ({
+  value: null,
+  rawValue: null,
+  source: null,
+  missingReason: reason,
+  normalization: [],
+  candidates: [],
+  reviewRequired: false,
+});
 const observations = {
   invoiceNumber: read("F-1"), supplierName: read("Fournisseur test"),
   supplierIce: missing("ICE illisible"), customerIce: read("001987654000073"),
@@ -32,13 +48,58 @@ test("Ingestor refuse les champs dérivés et les montants flottants", () => {
   assert.equal(ingested.observations.supplierIce.value, null);
   const ocrSource = { ...source, extractionMethod: "OCR", extractionVersion: "tesseract-v1" };
   const mixed = acceptIngestor(state, {
-    observations: { ...observations, amountTtc: { value: "1070.00", source: ocrSource, missingReason: null } },
+    observations: {
+      ...observations,
+      amountTtc: {
+        value: "1070.00", rawValue: "1070.00", source: ocrSource, missingReason: null,
+        normalization: [],
+        reviewRequired: false,
+        candidates: [{
+          value: "1070.00", rawValue: "1070.00", source: ocrSource, normalization: [],
+        }],
+      },
+    },
   });
   assert.equal(mixed.observations.amountTtc.source.extractionMethod, "OCR");
   assert.throws(() => acceptIngestor(state, { observations, expectedVat: "200.00" }));
   assert.throws(() => acceptIngestor(state, { observations: { ...observations, amountHt: read(1000) } }));
   assert.throws(() => acceptIngestor(state, { observations: { ...observations, amountTtc: missing("") } }));
-  assert.throws(() => acceptIngestor(state, { observations: { ...observations, amountTtc: { value: null, source: null, missingReason: null } } }));
+  assert.throws(() => acceptIngestor(state, {
+    observations: {
+      ...observations,
+      amountTtc: {
+        value: null, rawValue: null, source: null, missingReason: null,
+        normalization: [], candidates: [], reviewRequired: false,
+      },
+    },
+  }));
+});
+
+test("un champ ambigu exige une revue humaine sans valeur retenue", () => {
+  const state = initialState("batch-1", "run-1", "doc-1");
+  const ambiguousAmount = {
+    value: null,
+    rawValue: null,
+    source: null,
+    missingReason: "Plusieurs valeurs différentes trouvées.",
+    normalization: [],
+    candidates: [
+      { rawValue: "100.00", value: "100.00", source, normalization: [] },
+      { rawValue: "200.00", value: "200.00", source, normalization: [] },
+    ],
+    reviewRequired: true,
+  };
+  const ingested = acceptIngestor(state, {
+    observations: { ...observations, amountHt: ambiguousAmount },
+  });
+  assert.equal(ingested.observations.amountHt.value, null);
+  assert.equal(ingested.observations.amountHt.reviewRequired, true);
+  assert.throws(() => acceptIngestor(state, {
+    observations: {
+      ...observations,
+      amountHt: { ...ambiguousAmount, candidates: [] },
+    },
+  }));
 });
 
 test("transitions et domaines d'écriture des rôles", () => {

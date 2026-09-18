@@ -14,7 +14,7 @@ async function json(response) {
   return response.json();
 }
 
-test("parcours JPG complet via Nginx, API, worker et PostgreSQL", async () => {
+test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
   const home = await fetch(baseUrl);
   assert.equal(home.status, 200);
   assert.match(await home.text(), /<div id="root"><\/div>/);
@@ -26,9 +26,9 @@ test("parcours JPG complet via Nginx, API, worker et PostgreSQL", async () => {
     body: JSON.stringify({ name: `Lot E2E OCR ${randomUUID()}` }),
   }));
   const batchId = created.batch.id;
-  const jpeg = await readFile(new URL("./fixtures/ocr-invoice.jpg", import.meta.url));
+  const jpeg = await readFile(new URL("./fixtures/ocr-mixed.jpg", import.meta.url));
   const form = new FormData();
-  form.append("file", new Blob([jpeg], { type: "image/jpeg" }), "facture-e2e.jpg");
+  form.append("file", new Blob([jpeg], { type: "image/jpeg" }), "facture-mixte-e2e.jpg");
   const uploaded = await json(await fetch(`${baseUrl}/api/batches/${batchId}/sources`, {
     method: "POST", body: form,
   }));
@@ -46,8 +46,16 @@ test("parcours JPG complet via Nginx, API, worker et PostgreSQL", async () => {
   assert.equal(source?.status, "DONE");
   assert.equal(source.extractionMethod, "OCR");
   assert.equal(source.observationStatus, "COMPLETE");
-  assert.equal(source.observations.invoiceNumber.value, "FA-2026-0001");
+  assert.match(source.textPreview, /شركة المثال المختلطة/u);
+  assert.equal(source.observations.supplierName.value, "شركة المثال المختلطة");
+  assert.equal(source.observations.invoiceNumber.value, "MX-2026-0001");
+  assert.equal(source.observations.invoiceNumber.rawValue, "MX-٢٠٢٦-٠٠٠١");
+  assert.equal(source.observations.issuedOn.value, "2026-01-04");
   assert.equal(source.observations.amountHt.value, "7800.00");
+  assert.equal(source.observations.amountHt.rawValue, "٧٬٨٠٠٫٠٠");
+  assert.ok(source.observations.amountHt.normalization.includes(
+    "ARABIC_INDIC_DIGITS_TO_LATIN",
+  ));
   assert.equal(source.observations.vatAmount.value, "1560.00");
   assert.equal(source.observations.amountTtc.value, "9360.00");
 
@@ -67,7 +75,7 @@ test("parcours JPG complet via Nginx, API, worker et PostgreSQL", async () => {
     assert.equal(stored.rows[0]?.media_type, "image/jpeg");
     assert.equal(stored.rows[0]?.status, "DONE");
     assert.equal(stored.rows[0]?.method, "OCR");
-    assert.equal(stored.rows[0]?.method_version, "tesseract-5-fra-eng-v1");
+    assert.equal(stored.rows[0]?.method_version, "tesseract-5-fra-ara-eng-v2");
     assert.equal(stored.rows[0]?.page_number, 1);
     assert.equal(stored.rows[0]?.confidence_percent, null);
     assert.equal(stored.rows[0]?.observation_inputs, 1);

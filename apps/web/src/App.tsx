@@ -9,10 +9,33 @@ const batchSchema = z.object({
 });
 const listSchema = z.object({ batches: z.array(batchSchema) });
 const createSchema = z.object({ batch: batchSchema });
+const normalizationSchema = z.enum([
+  "ARABIC_INDIC_DIGITS_TO_LATIN",
+  "PERSIAN_DIGITS_TO_LATIN",
+  "ARABIC_DECIMAL_TO_DOT",
+  "ARABIC_THOUSANDS_REMOVED",
+  "GROUPING_SEPARATOR_REMOVED",
+  "DECIMAL_COMMA_TO_DOT",
+  "DATE_SEPARATOR_TO_HYPHEN",
+]);
+const observationCandidateSchema = z.object({
+  rawValue: z.string(),
+  value: z.string(),
+  page: z.number().int().positive(),
+  extractionMethod: z.enum(["PDF_TEXT", "OCR"]),
+  extractionVersion: z.string(),
+  normalization: z.array(normalizationSchema),
+});
 const observedFieldSchema = z.object({
   value: z.string().nullable(),
+  rawValue: z.string().nullable().default(null),
   page: z.number().int().positive().nullable(),
   missingReason: z.string().nullable(),
+  extractionMethod: z.enum(["PDF_TEXT", "OCR"]).nullable().default(null),
+  extractionVersion: z.string().nullable().default(null),
+  normalization: z.array(normalizationSchema).default([]),
+  candidates: z.array(observationCandidateSchema).default([]),
+  reviewRequired: z.boolean().default(false),
 });
 const observationFieldsSchema = z.object({
   supplierName: observedFieldSchema,
@@ -110,7 +133,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
   return (
     <section aria-labelledby="sources-title" className="panel">
       <h2 id="sources-title">Fichiers du lot : {batch.name ?? batch.id}</h2>
-      <p>Les PDF texte sont lus directement. Les pages scannées et les images JPG passent par OCR.</p>
+      <p>Les PDF texte sont lus directement. Les pages scannées et les images JPG passent par OCR en français, arabe et anglais.</p>
       <form onSubmit={(event) => void upload(event)}>
         <label htmlFor="source-file">Ajouter un PDF ou JPG (15 Mo maximum)</label>
         <div className="form-row">
@@ -133,7 +156,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
         <ul className="source-list">
           {sources.map((source) => (
             <li key={source.id}>
-              <strong>{source.filename}</strong>
+              <strong dir="auto" className="bidi-text">{source.filename}</strong>
               <span className="status">{source.status}</span>
               {source.failureReason && <p>{source.failureReason}</p>}
               {source.extractions.length > 0 && (
@@ -155,8 +178,41 @@ function BatchDetails({ batch }: { batch: Batch }) {
                       return (
                         <div key={name}>
                           <dt>{label}</dt>
-                          <dd>{observed?.value ?? `Non lu : ${observed?.missingReason ?? "motif indisponible"}`}
-                            {observed?.page && <small>Page {observed.page}</small>}
+                          <dd>
+                            {observed?.value !== null && observed?.value !== undefined ? (
+                              <span dir="auto" className="bidi-text">{observed.value}</span>
+                            ) : `Non lu : ${observed?.missingReason ?? "motif indisponible"}`}
+                            {observed?.page && (
+                              <small>
+                                Page {observed.page} — {observed.extractionMethod} {observed.extractionVersion}
+                              </small>
+                            )}
+                            {observed?.rawValue && observed.rawValue !== observed.value && (
+                              <small>
+                                Valeur brute : <span dir="auto" className="bidi-text">{observed.rawValue}</span>
+                              </small>
+                            )}
+                            {observed && observed.normalization.length > 0 && (
+                              <small>Normalisation : {observed.normalization.join(", ")}</small>
+                            )}
+                            {observed && observed.value === null && observed.candidates.length > 0 && (
+                              <>
+                                {observed.reviewRequired && (
+                                  <strong className="review-required">Revue humaine requise</strong>
+                                )}
+                                <ul className="candidate-list">
+                                  {observed.candidates.map((candidate, candidateIndex) => (
+                                    <li key={`${candidate.page}-${candidate.rawValue}-${candidateIndex}`}>
+                                      <span dir="auto" className="bidi-text">{candidate.rawValue}</span>
+                                      <small>
+                                        Page {candidate.page} — {candidate.extractionMethod} {candidate.extractionVersion}
+                                        {` — valeur normalisée ${candidate.value}`}
+                                      </small>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            )}
                           </dd>
                         </div>
                       );
@@ -164,7 +220,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
                   </dl>
                 </div>
               )}
-              {source.textPreview && <pre>{source.textPreview}</pre>}
+              {source.textPreview && <pre dir="auto" className="bidi-text">{source.textPreview}</pre>}
             </li>
           ))}
         </ul>

@@ -9,7 +9,7 @@ const run = promisify(execFile);
 const OCR_TIMEOUT_MS = 60_000;
 const RENDER_TIMEOUT_MS = 45_000;
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
-export const OCR_VERSION = "tesseract-5-fra-eng-v1";
+export const OCR_VERSION = "tesseract-5-fra-ara-eng-v2";
 
 export class OcrTechnicalError extends Error {
   constructor() {
@@ -37,7 +37,7 @@ function readable(text: string): boolean {
 async function runTesseract(path: string): Promise<string> {
   try {
     const { stdout } = await run(
-      "tesseract", [path, "stdout", "-l", "fra+eng", "--psm", "6"],
+      "tesseract", [path, "stdout", "-l", "fra+ara+eng", "--psm", "6"],
       { encoding: "utf8", timeout: OCR_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
     );
     if (Buffer.byteLength(stdout, "utf8") > MAX_TEXT_BYTES) throw new OcrResourceLimitError();

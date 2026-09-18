@@ -7,6 +7,7 @@ import {
 } from "./extraction.js";
 import { saveExtractionOutcome } from "./extraction-store.js";
 import { OCR_VERSION } from "./ocr.js";
+import { OBSERVATION_PARSER_VERSION } from "./observations.js";
 import {
   enqueueSource, redisConnection, SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE, type SourceJob,
 } from "./queue.js";
@@ -115,15 +116,29 @@ export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sou
   );
   await pool.query(
     `UPDATE source_files sf SET status = 'RECEIVED', status_reason = NULL
+      WHERE sf.status = 'NON_TRAITE' AND sf.media_type = ANY($1::text[])
+        AND EXISTS (
+          SELECT 1 FROM source_extractions se
+          WHERE se.source_id = sf.id AND se.method = 'OCR'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM source_extractions se
+          WHERE se.source_id = sf.id AND se.method = 'OCR' AND se.method_version = $2
+        )`,
+    [SUPPORTED_MEDIA, OCR_VERSION],
+  );
+  await pool.query(
+    `UPDATE source_files sf SET status = 'RECEIVED', status_reason = NULL
       WHERE sf.status = 'DONE' AND sf.media_type = ANY($1::text[])
         AND EXISTS (
           SELECT 1 FROM source_extractions se
           WHERE se.source_id = sf.id AND se.status = 'SUCCEEDED'
         )
         AND NOT EXISTS (
-          SELECT 1 FROM source_observations so WHERE so.source_id = sf.id
+          SELECT 1 FROM source_observations so
+          WHERE so.source_id = sf.id AND so.parser_version = $2
         )`,
-    [SUPPORTED_MEDIA],
+    [SUPPORTED_MEDIA, OBSERVATION_PARSER_VERSION],
   );
   const worker = new Worker<SourceJob>(
     SOURCE_QUEUE,

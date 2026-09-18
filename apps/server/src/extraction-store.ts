@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import type { ProcessingOutcome } from "./extraction.js";
-import { extractInvoiceObservations } from "./observations.js";
+import {
+  extractInvoiceObservations, OBSERVATION_PARSER_VERSION,
+} from "./observations.js";
 
 export async function saveExtractionOutcome(
   pool: Pool,
@@ -52,8 +54,9 @@ export async function saveExtractionOutcome(
       await client.query(
         `INSERT INTO source_observations (
            source_id, extraction_id, parser_version, status, fields
-         ) VALUES ($1, $2, 'labels-v1', $3, $4::jsonb)`,
-        [sourceId, primaryId, observations.status, JSON.stringify(observations.fields)],
+         ) VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [sourceId, primaryId, OBSERVATION_PARSER_VERSION,
+          observations.status, JSON.stringify(observations.fields)],
       );
       for (const extractionId of new Set(outcome.selectedSegments.map((segment) => {
         const id = extractionIds.get(`${segment.method}:${segment.version}`);

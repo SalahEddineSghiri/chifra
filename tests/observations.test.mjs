@@ -2,45 +2,91 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { extractInvoiceObservations } from "../dist/server/observations.js";
 
-test("les montants et la date lus conservent leur page sans calcul métier", () => {
-  const result = extractInvoiceObservations([{
-    page: 2,
-    text: [
-      "FOURNISSEUR EXEMPLE",
-      "ICE 005678901000091",
-      "FACTURE N FA-2026-0001",
-      "Date",
-      "2026-01-01",
-      "ICE client",
-      "001987654000073",
-      "Total HT",
-      "7 800.00",
-      "TVA 20%",
-      "1 560.00",
-      "Net a payer TTC",
-      "9 360.00",
-    ].join("\n"),
-  }]);
+const segment = (text, page = 1, method = "OCR", version = "test-ocr-v1") => ({
+  page, text, method, version,
+});
+
+test("les montants et la date lus conservent valeur brute, normalisation et provenance", () => {
+  const result = extractInvoiceObservations([segment([
+    "FOURNISSEUR EXEMPLE",
+    "ICE 005678901000091",
+    "FACTURE N FA-2026-0001",
+    "Date",
+    "2026-01-01",
+    "ICE client",
+    "001987654000073",
+    "Total HT",
+    "7 800.00",
+    "TVA 20%",
+    "1 560.00",
+    "Net a payer TTC",
+    "9 360.00",
+  ].join("\n"), 2, "PDF_TEXT", "poppler-test")]);
 
   assert.equal(result.status, "COMPLETE");
-  assert.deepEqual(result.fields.amountHt, { value: "7800.00", page: 2, missingReason: null });
-  assert.deepEqual(result.fields.vatAmount, { value: "1560.00", page: 2, missingReason: null });
-  assert.deepEqual(result.fields.amountTtc, { value: "9360.00", page: 2, missingReason: null });
+  assert.equal(result.fields.amountHt.value, "7800.00");
+  assert.equal(result.fields.amountHt.rawValue, "7 800.00");
+  assert.deepEqual(result.fields.amountHt.normalization, ["GROUPING_SEPARATOR_REMOVED"]);
+  assert.equal(result.fields.amountHt.page, 2);
+  assert.equal(result.fields.amountHt.extractionMethod, "PDF_TEXT");
+  assert.equal(result.fields.amountHt.extractionVersion, "poppler-test");
+  assert.equal(result.fields.vatAmount.value, "1560.00");
+  assert.equal(result.fields.amountTtc.value, "9360.00");
   assert.equal(result.fields.printedVatRate.value, "20");
   assert.equal(result.fields.issuedOn.value, "2026-01-01");
 });
 
-test("un champ ambigu ou absent reste nul avec motif", () => {
-  const result = extractInvoiceObservations([{
-    page: 1,
-    text: "Total HT\n100.00\nTotal HT\n200.00\nDate\n2026-02-30",
-  }]);
+test("les chiffres arabo-indiens sont normalisés explicitement sans perdre la valeur brute", () => {
+  const result = extractInvoiceObservations([segment([
+    "شركة المثال العربية",
+    "المعرف الموحد للمقاولة ٠٠٥٦٧٨٩٠١٠٠٠٠٩١",
+    "فاتورة رقم AR-٢٠٢٦-٠٠٠١",
+    "التاريخ ٢٠٢٦/٠١/٠٣",
+    "معرف الزبون ٠٠١٩٨٧٦٥٤٠٠٠٠٧٣",
+    "المجموع دون الضريبة ٧٬٨٠٠٫٠٠",
+    "الضريبة على القيمة المضافة ٢٠٪ ١٬٥٦٠٫٠٠",
+    "المجموع مع الضريبة ٩٬٣٦٠٫٠٠",
+  ].join("\n"))]);
+
+  assert.equal(result.status, "COMPLETE");
+  assert.equal(result.fields.supplierName.value, "شركة المثال العربية");
+  assert.equal(result.fields.supplierIce.value, "005678901000091");
+  assert.equal(result.fields.customerIce.value, "001987654000073");
+  assert.equal(result.fields.invoiceNumber.value, "AR-2026-0001");
+  assert.equal(result.fields.invoiceNumber.rawValue, "AR-٢٠٢٦-٠٠٠١");
+  assert.equal(result.fields.issuedOn.value, "2026-01-03");
+  assert.deepEqual(result.fields.issuedOn.normalization, [
+    "ARABIC_INDIC_DIGITS_TO_LATIN", "DATE_SEPARATOR_TO_HYPHEN",
+  ]);
+  assert.equal(result.fields.amountHt.rawValue, "٧٬٨٠٠٫٠٠");
+  assert.equal(result.fields.amountHt.value, "7800.00");
+  assert.deepEqual(result.fields.amountHt.normalization, [
+    "ARABIC_INDIC_DIGITS_TO_LATIN",
+    "ARABIC_DECIMAL_TO_DOT",
+    "ARABIC_THOUSANDS_REMOVED",
+  ]);
+  assert.equal(result.fields.vatAmount.value, "1560.00");
+  assert.equal(result.fields.amountTtc.value, "9360.00");
+  assert.equal(result.fields.printedVatRate.value, "20");
+});
+
+test("un champ ambigu ou absent reste nul et conserve ses candidats", () => {
+  const result = extractInvoiceObservations([segment(
+    "Total HT\n100.00\nTotal HT\n200.00\nDate\n2026-02-30",
+  )]);
 
   assert.equal(result.status, "PARTIAL");
   assert.equal(result.fields.amountHt.value, null);
+  assert.equal(result.fields.amountHt.rawValue, null);
   assert.match(result.fields.amountHt.missingReason, /Plusieurs valeurs/);
+  assert.deepEqual(result.fields.amountHt.candidates.map((candidate) => candidate.rawValue), [
+    "100.00", "200.00",
+  ]);
+  assert.equal(result.fields.amountHt.reviewRequired, true);
   assert.equal(result.fields.issuedOn.value, null);
   assert.ok(result.fields.issuedOn.missingReason);
   assert.equal(result.fields.amountTtc.value, null);
   assert.equal(result.fields.amountTtc.page, null);
+  assert.deepEqual(result.fields.amountTtc.candidates, []);
+  assert.equal(result.fields.amountTtc.reviewRequired, false);
 });

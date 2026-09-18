@@ -110,6 +110,8 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
   let closeWorker = await startSourceWorker(pool, queue, sourceDir);
   const invoiceJpeg = await readFile(new URL("./fixtures/ocr-invoice.jpg", import.meta.url));
   const ambiguousJpeg = await readFile(new URL("./fixtures/ocr-ambiguous.jpg", import.meta.url));
+  const arabicJpeg = await readFile(new URL("./fixtures/ocr-arabic.jpg", import.meta.url));
+  const mixedJpeg = await readFile(new URL("./fixtures/ocr-mixed.jpg", import.meta.url));
   const blankJpeg = await readFile(new URL("./fixtures/ocr-blank.jpg", import.meta.url));
 
   try {
@@ -146,9 +148,12 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(jpg.mediaType, "image/jpeg");
     assert.deepEqual(jpg.extractions.map((item) => item.method), ["OCR"]);
     assert.equal(jpg.observationStatus, "COMPLETE");
-    assert.deepEqual(jpg.observations.amountTtc, {
-      value: "9360.00", page: 1, missingReason: null,
-    });
+    assert.equal(jpg.observations.amountTtc.value, "9360.00");
+    assert.equal(jpg.observations.amountTtc.rawValue, "9360.00");
+    assert.equal(jpg.observations.amountTtc.page, 1);
+    assert.equal(jpg.observations.amountTtc.extractionMethod, "OCR");
+    assert.equal(jpg.observations.amountTtc.extractionVersion, "tesseract-5-fra-ara-eng-v2");
+    assert.deepEqual(jpg.observations.amountTtc.normalization, []);
     assert.equal(jpg.observations.supplierIce.value, "005678901000091");
     const confidence = await pool.query(
       `SELECT confidence_percent FROM source_extraction_segments
@@ -169,6 +174,54 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(scan.observations.invoiceNumber.value, "FA-2026-0001");
     assert.equal(scan.observations.amountHt.value, "7800.00");
 
+    const arabicId = await upload(
+      app, batchId, arabicJpeg, "facture-arabe.jpg", "image/jpeg",
+    );
+    await waitForStatus(pool, arabicId, "DONE");
+    const arabic = await readSource(app, batchId, arabicId);
+    assert.match(arabic.textPreview, /شركة المثال العربية/u);
+    assert.equal(arabic.observationStatus, "COMPLETE");
+    assert.equal(arabic.observations.supplierName.value, "شركة المثال العربية");
+    assert.equal(arabic.observations.supplierIce.value, "005678901000091");
+    assert.equal(arabic.observations.customerIce.value, "001987654000073");
+    assert.equal(arabic.observations.invoiceNumber.value, "AR-2026-0001");
+    assert.equal(arabic.observations.invoiceNumber.rawValue, "AR-٢٠٢٦-٠٠٠١");
+    assert.equal(arabic.observations.issuedOn.value, "2026-01-03");
+    assert.equal(arabic.observations.amountHt.value, "7800.00");
+    assert.equal(arabic.observations.vatAmount.value, "1560.00");
+    assert.equal(arabic.observations.amountTtc.value, "9360.00");
+    assert.equal(arabic.observations.printedVatRate.value, "20");
+    assert.ok(arabic.observations.amountHt.normalization.includes(
+      "ARABIC_INDIC_DIGITS_TO_LATIN",
+    ));
+    assert.equal(arabic.observations.amountHt.candidates[0].rawValue, "٧٬٨٠٠٫٠٠");
+
+    const arabicScanId = await upload(
+      app, batchId, makeImagePdf(arabicJpeg, 2400, 1700),
+      "scan-arabe.pdf", "application/pdf",
+    );
+    await waitForStatus(pool, arabicScanId, "DONE");
+    const arabicScan = await readSource(app, batchId, arabicScanId);
+    assert.deepEqual(arabicScan.extractions.map((item) => [item.method, item.status]), [
+      ["PDF_TEXT", "NON_TRAITE"], ["OCR", "SUCCEEDED"],
+    ]);
+    assert.equal(arabicScan.observations.invoiceNumber.value, "AR-2026-0001");
+    assert.equal(arabicScan.observations.amountTtc.value, "9360.00");
+
+    const mixedId = await upload(
+      app, batchId, mixedJpeg, "facture-mixte.jpg", "image/jpeg",
+    );
+    await waitForStatus(pool, mixedId, "DONE");
+    const mixed = await readSource(app, batchId, mixedId);
+    assert.match(mixed.textPreview, /شركة المثال المختلطة/u);
+    assert.equal(mixed.observationStatus, "COMPLETE");
+    assert.equal(mixed.observations.supplierName.value, "شركة المثال المختلطة");
+    assert.equal(mixed.observations.invoiceNumber.value, "MX-2026-0001");
+    assert.equal(mixed.observations.issuedOn.value, "2026-01-04");
+    assert.equal(mixed.observations.amountHt.value, "7800.00");
+    assert.equal(mixed.observations.vatAmount.value, "1560.00");
+    assert.equal(mixed.observations.amountTtc.value, "9360.00");
+
     const ambiguousId = await upload(
       app, batchId, ambiguousJpeg, "ambigue.jpg", "image/jpeg",
     );
@@ -177,6 +230,10 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(ambiguous.observationStatus, "PARTIAL");
     assert.equal(ambiguous.observations.amountHt.value, null);
     assert.match(ambiguous.observations.amountHt.missingReason, /Plusieurs valeurs/);
+    assert.deepEqual(ambiguous.observations.amountHt.candidates.map((item) => item.value), [
+      "7800.00", "7900.00",
+    ]);
+    assert.equal(ambiguous.observations.amountHt.reviewRequired, true);
     assert.equal(ambiguous.observations.amountTtc.value, "9000.00");
 
     const blankId = await upload(app, batchId, blankJpeg, "illisible.jpg", "image/jpeg");
@@ -231,6 +288,51 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     );
     assert.equal(afterRestart.rows[0]?.extractions, 1);
     assert.equal(afterRestart.rows[0]?.inputs, 1);
+
+    await closeWorker();
+    await pool.query(
+      "UPDATE source_observations SET parser_version = 'labels-v1' WHERE source_id = $1",
+      [jpgId],
+    );
+    closeWorker = await startSourceWorker(pool, queue, sourceDir);
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const reparsed = await readSource(app, batchId, jpgId);
+      if (reparsed.observationVersion === "labels-v2" && reparsed.status === "DONE") break;
+      await sleep(100);
+    }
+    const reparsed = await readSource(app, batchId, jpgId);
+    assert.equal(reparsed.observationVersion, "labels-v2");
+    const afterParserReplay = await pool.query(
+      "SELECT count(*)::int AS count FROM source_extractions WHERE source_id = $1",
+      [jpgId],
+    );
+    assert.equal(afterParserReplay.rows[0]?.count, 1);
+
+    await closeWorker();
+    await pool.query(
+      `UPDATE source_extractions SET method_version = 'tesseract-5-fra-eng-v1'
+        WHERE source_id = $1 AND method = 'OCR'`,
+      [blankId],
+    );
+    closeWorker = await startSourceWorker(pool, queue, sourceDir);
+    let upgradedBlank;
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      upgradedBlank = await pool.query(
+        `SELECT sf.status,
+                count(*) FILTER (
+                  WHERE se.method = 'OCR' AND se.method_version = 'tesseract-5-fra-ara-eng-v2'
+                )::int AS current_ocr
+           FROM source_files sf
+           LEFT JOIN source_extractions se ON se.source_id = sf.id
+          WHERE sf.id = $1 GROUP BY sf.status`,
+        [blankId],
+      );
+      if (upgradedBlank.rows[0]?.status === "NON_TRAITE"
+        && upgradedBlank.rows[0]?.current_ocr === 1) break;
+      await sleep(100);
+    }
+    assert.equal(upgradedBlank?.rows[0]?.status, "NON_TRAITE");
+    assert.equal(upgradedBlank?.rows[0]?.current_ocr, 1);
 
     const duplicate = await app.inject({
       method: "POST", url: `/api/batches/${batchId}/sources`,

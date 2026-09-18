@@ -12,16 +12,42 @@ const sourceSchema = z.strictObject({
   extractionVersion: id,
 });
 
+const normalizationSchema = z.enum([
+  "ARABIC_INDIC_DIGITS_TO_LATIN",
+  "PERSIAN_DIGITS_TO_LATIN",
+  "ARABIC_DECIMAL_TO_DOT",
+  "ARABIC_THOUSANDS_REMOVED",
+  "GROUPING_SEPARATOR_REMOVED",
+  "DECIMAL_COMMA_TO_DOT",
+  "DATE_SEPARATOR_TO_HYPHEN",
+]);
+
 function observed(valueSchema: z.ZodType<string>) {
+  const candidateSchema = z.strictObject({
+    rawValue: id,
+    value: valueSchema,
+    source: sourceSchema,
+    normalization: z.array(normalizationSchema),
+  });
   return z.strictObject({
     value: valueSchema.nullable(),
+    rawValue: id.nullable(),
     source: sourceSchema.nullable(),
     missingReason: z.string().min(1).nullable(),
+    normalization: z.array(normalizationSchema),
+    candidates: z.array(candidateSchema),
+    reviewRequired: z.boolean(),
   }).refine(
     (field) => field.value === null
-      ? field.source === null && field.missingReason !== null
-      : field.source !== null && field.missingReason === null,
-    "Une valeur absente exige un motif ; une valeur lue exige une source",
+      ? field.rawValue === null && field.source === null && field.missingReason !== null
+      : field.rawValue !== null && field.source !== null && field.missingReason === null
+        && field.candidates.length > 0,
+    "Une valeur absente exige un motif ; une valeur lue exige sa valeur brute, sa source et un candidat",
+  ).refine(
+    (field) => field.reviewRequired
+      ? field.value === null && field.candidates.length > 1
+      : true,
+    "Une revue humaine exige plusieurs candidats sans valeur retenue",
   );
 }
 
@@ -59,7 +85,7 @@ const reconciliationSchema = z.strictObject({
 });
 
 export const stateSchema = z.strictObject({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(3),
   control: z.strictObject({
     batchId: id,
     runId: id,
@@ -90,7 +116,7 @@ const explainerSchema = z.strictObject({ explanation: z.string().min(1) });
 
 export function initialState(batchId: string, runId: string, documentId: string): AgentState {
   return stateSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     control: { batchId, runId, documentId, stage: "RECEIVED", attempts: 0, stopReason: null },
     observations: null,
     references: null,

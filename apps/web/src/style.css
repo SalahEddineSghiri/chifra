@@ -58,6 +58,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .source-list pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; background: #f3f6f4; padding: 12px; border-radius: 6px; }
 
+.bidi-text { unicode-bidi: plaintext; text-align: start; }
+
 .observations { margin-top: 16px; }
 
 .observations p { font-weight: 600; }
@@ -71,6 +73,12 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .observations dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 
 .observations small { display: block; color: #5c6d69; }
+
+.candidate-list { margin: 8px 0 0; padding-inline-start: 18px; }
+
+.candidate-list li { padding: 4px 0; border: 0; }
+
+.review-required { display: block; margin-top: 8px; color: #a45c00; }
 
 @media (max-width: 600px) {
   .form-row, .batch-list li { flex-direction: column; }
