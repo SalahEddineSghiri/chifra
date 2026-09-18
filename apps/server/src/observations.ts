@@ -231,8 +231,9 @@ function amountFromLine(lines: Line[], index: number): Normalized | null {
   if (!current) return null;
   const values = [...current.text.matchAll(amountPattern)]
     .map((match) => match[0]).filter((value): value is string => value !== undefined);
-  if (values.length === 1) return normalizeAmount(values[0]);
   if (values.length > 1) return null;
+  const first = values[0];
+  if (first !== undefined) return normalizeAmount(first);
   const next = lines[index + 1];
   return next?.page === current.page ? normalizeAmount(next.text) : null;
 }
