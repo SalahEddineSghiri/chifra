@@ -14,7 +14,8 @@ Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé 
 
 Le Compose actuel définit PostgreSQL 16 et Redis 7 sur un réseau propre à Chiffra, sans port publié sur l'hôte. Le mot de passe PostgreSQL est fourni dans `.env` à partir du champ vide de `.env.example` ; aucune valeur secrète n'est livrée. Les volumes conservent les données entre redémarrages.
 
-Au démarrage normal de Compose, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique la migration 2. Sur un volume existant, `migrate` applique seulement les migrations manquantes. La migration 1 crée les lots et les sources physiques avec une contrainte de réimport du même contenu dans un lot. La migration 2 conserve les tentatives d'extraction de texte et impose un motif pour les échecs ou les documents non traités. Une source n'est pas encore une facture métier. Ce Compose partiel ne fournit aucune interface utilisateur.
+Au démarrage normal de Compose, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 et 3. Sur un volume existant, `migrate` applique seulement les migrations manquantes. La migration 1 crée les lots et les sources physiques avec une contrainte de réimport du même contenu dans un lot. La migration 2 conserve les tentatives d'extraction de texte et impose un motif pour les échecs ou les documents non traités. Une source n'est pas encore une facture métier. Ce Compose partiel ne fournit aucune interface utilisateur.
+La migration 3 conserve les passages extraits avec leur page ou ligne. La confiance, si elle est réellement fournie par l'outil, est exprimée en pourcentage ; sinon elle reste `NULL`.
 
 ## Tests SQL avec Docker
 
@@ -24,6 +25,6 @@ Depuis la racine du clone, cette commande lance les tests SQL dans des conteneur
 docker compose -f compose.test.yaml up --force-recreate --abort-on-container-exit --exit-code-from sql_tests
 ```
 
-`compose.test.yaml` crée une base de test séparée, sans port publié et avec des données temporaires. Il applique les migrations 1 et 2, puis exécute `tests/sources.sql` et `tests/migrations.sql`. Ces tests sont séparés du démarrage normal et ne touchent pas aux volumes de l'application. Le code de sortie de la commande est celui des tests. Pour retirer ensuite les conteneurs de test : `docker compose -f compose.test.yaml down`.
+`compose.test.yaml` crée une base de test séparée, sans port publié et avec des données temporaires. Il applique les migrations 1 à 3, puis exécute `tests/sources.sql`, `tests/migrations.sql` et `tests/segments.sql`. Ces tests facultatifs sont séparés du démarrage normal et ne touchent pas aux volumes de l'application. Le code de sortie de la commande est celui des tests. Pour retirer ensuite les conteneurs de test : `docker compose -f compose.test.yaml down`.
 
 Quand l'application sera livrée, ce README décrira son démarrage et ses tests locaux depuis un clone propre, sans dépendance au poste de développement ni à un VPS particulier.

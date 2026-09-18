@@ -37,8 +37,10 @@ services:
       - -ec
       - |
         psql -X -v ON_ERROR_STOP=1 -f /db/migrate.sql
+        psql -X -v ON_ERROR_STOP=1 -f /db/migrate.sql
         psql -X -v ON_ERROR_STOP=1 -f /tests/sources.sql
         psql -X -v ON_ERROR_STOP=1 -f /tests/migrations.sql
+        psql -X -v ON_ERROR_STOP=1 -f /tests/segments.sql
     networks:
       - test_internal
 
