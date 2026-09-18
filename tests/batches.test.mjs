@@ -3,11 +3,13 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { buildApp } from "../dist/server/app.js";
+import { createSourceQueue } from "../dist/server/queue.js";
 
 test("création et lecture d'un lot persistent dans PostgreSQL", async () => {
   const pool = new Pool();
-  const writer = buildApp(pool);
-  const reader = buildApp(pool);
+  const queue = createSourceQueue();
+  const writer = buildApp(pool, queue, "/tmp/chiffra-unused");
+  const reader = buildApp(pool, queue, "/tmp/chiffra-unused");
   const name = `Lot test ${randomUUID()}`;
 
   try {
@@ -48,6 +50,7 @@ test("création et lecture d'un lot persistent dans PostgreSQL", async () => {
   } finally {
     await writer.close();
     await reader.close();
+    await queue.close();
     await pool.end();
   }
 });

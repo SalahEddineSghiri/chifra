@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
+import type { Queue } from "bullmq";
 import type { Pool } from "pg";
 import { z } from "zod";
+import type { SourceJob } from "./queue.js";
+import { registerSourceRoutes } from "./sources.js";
 
 const createBatchSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
@@ -23,8 +26,8 @@ function serializeBatch(row: BatchRow) {
   };
 }
 
-export function buildApp(pool: Pool) {
-  const app = Fastify({ logger: true, bodyLimit: 16 * 1024 });
+export function buildApp(pool: Pool, queue: Queue<SourceJob>, sourceDir: string) {
+  const app = Fastify({ logger: true, bodyLimit: 16 * 1024 * 1024 });
 
   app.get("/api/health", async () => {
     await pool.query("SELECT 1");
@@ -38,7 +41,7 @@ export function buildApp(pool: Pool) {
     return { batches: result.rows.map(serializeBatch) };
   });
 
-  app.post("/api/batches", async (request, reply) => {
+  app.post("/api/batches", { bodyLimit: 16 * 1024 }, async (request, reply) => {
     const parsed = createBatchSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Nom de lot requis (1 à 120 caractères)." });
@@ -53,5 +56,6 @@ export function buildApp(pool: Pool) {
     return reply.code(201).send({ batch: serializeBatch(batch) });
   });
 
+  registerSourceRoutes(app, pool, queue, sourceDir);
   return app;
 }

@@ -9,11 +9,13 @@
     "test": "node --test tests/contracts.test.mjs",
     "typecheck:server": "tsc --noEmit -p tsconfig.server.json",
     "build:server": "tsc -p tsconfig.server.json",
-    "test:server": "node --test tests/batches.test.mjs",
+    "test:server": "node --test tests/batches.test.mjs tests/uploads.test.mjs",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "build:web": "vite build --config apps/web/vite.config.ts"
   },
   "dependencies": {
+    "@fastify/multipart": "^10.1.1",
+    "bullmq": "^5.0.0",
     "fastify": "^5.12.5",
     "pg": "^8.0.0",
     "zod": "4.1.12"

@@ -1,17 +1,20 @@
 FROM node:24-alpine AS build
 
 WORKDIR /app
+RUN apk add --no-cache poppler-utils
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.server.json ./
 COPY apps/server/src ./apps/server/src
 COPY tests/batches.test.mjs ./tests/batches.test.mjs
+COPY tests/uploads.test.mjs ./tests/uploads.test.mjs
 RUN npm run typecheck:server && npm run build:server
 
 FROM node:24-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apk add --no-cache poppler-utils
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist/server ./dist/server

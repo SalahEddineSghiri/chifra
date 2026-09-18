@@ -9,11 +9,105 @@ const batchSchema = z.object({
 });
 const listSchema = z.object({ batches: z.array(batchSchema) });
 const createSchema = z.object({ batch: batchSchema });
+const sourceSchema = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  status: z.string(),
+  createdAt: z.iso.datetime(),
+  extractionStatus: z.string().nullable(),
+  extractionMethod: z.string().nullable(),
+  failureReason: z.string().nullable(),
+  textPreview: z.string().nullable(),
+});
+const sourcesSchema = z.object({ sources: z.array(sourceSchema) });
+const uploadSchema = z.object({ source: z.object({ id: z.string().uuid(), status: z.string() }) });
 type Batch = z.infer<typeof batchSchema>;
+type Source = z.infer<typeof sourceSchema>;
 
 async function readJson(response: Response): Promise<unknown> {
   if (!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
   return response.json();
+}
+
+function BatchDetails({ batch }: { batch: Batch }) {
+  const [sources, setSources] = useState<Source[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadSources() {
+    const response = await fetch(`/api/batches/${batch.id}/sources`);
+    const parsed = sourcesSchema.parse(await readJson(response));
+    setSources(parsed.sources);
+    setError(null);
+  }
+
+  useEffect(() => {
+    void loadSources().catch(() => setError("Impossible de charger les fichiers."));
+    const timer = setInterval(() => {
+      void loadSources().catch(() => setError("Impossible de charger les fichiers."));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [batch.id]);
+
+  async function upload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file) return;
+    const formElement = event.currentTarget;
+    setUploading(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      uploadSchema.parse(await readJson(await fetch(`/api/batches/${batch.id}/sources`, {
+        method: "POST", body: form,
+      })));
+      setFile(null);
+      formElement.reset();
+      await loadSources();
+    } catch {
+      setError("Envoi impossible. Vérifiez le PDF, sa taille et les doublons.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <section aria-labelledby="sources-title" className="panel">
+      <h2 id="sources-title">Fichiers du lot : {batch.name ?? batch.id}</h2>
+      <p>PDF texte uniquement pour cette étape. Un scan sans texte porte un motif explicite.</p>
+      <form onSubmit={(event) => void upload(event)}>
+        <label htmlFor="source-file">Ajouter un PDF (15 Mo maximum)</label>
+        <div className="form-row">
+          <input
+            id="source-file"
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            required
+          />
+          <button type="submit" disabled={!file || uploading}>
+            {uploading ? "Envoi…" : "Envoyer"}
+          </button>
+        </div>
+      </form>
+      {error && <p role="alert" className="error">{error}</p>}
+      {sources.length === 0 ? (
+        <p>Aucun fichier dans ce lot.</p>
+      ) : (
+        <ul className="source-list">
+          {sources.map((source) => (
+            <li key={source.id}>
+              <strong>{source.filename}</strong>
+              <span className="status">{source.status}</span>
+              {source.failureReason && <p>{source.failureReason}</p>}
+              {source.textPreview && <pre>{source.textPreview}</pre>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 export function App() {
@@ -22,6 +116,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
 
   async function loadBatches() {
     try {
@@ -50,15 +145,18 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      createSchema.parse(await readJson(response));
+      const created = createSchema.parse(await readJson(response));
       setName("");
       await loadBatches();
+      setSelectedBatchId(created.batch.id);
     } catch {
       setError("Impossible de créer le lot.");
     } finally {
       setSaving(false);
     }
   }
+
+  const selectedBatch = batches.find((batch) => batch.id === selectedBatchId);
 
   return (
     <main className="page">
@@ -99,7 +197,14 @@ export function App() {
             {batches.map((batch) => (
               <li key={batch.id}>
                 <div>
-                  <strong>{batch.name ?? batch.id}</strong>
+                  <button
+                    type="button"
+                    className="batch-select"
+                    aria-pressed={selectedBatchId === batch.id}
+                    onClick={() => setSelectedBatchId(batch.id)}
+                  >
+                    {batch.name ?? batch.id}
+                  </button>
                   <small>{batch.id}</small>
                 </div>
                 <div className="meta">
@@ -113,6 +218,7 @@ export function App() {
           </ul>
         )}
       </section>
+      {selectedBatch && <BatchDetails key={selectedBatch.id} batch={selectedBatch} />}
     </main>
   );
 }

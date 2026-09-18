@@ -1,10 +1,13 @@
 import { Pool } from "pg";
 import { buildApp } from "./app.js";
+import { createSourceQueue } from "./queue.js";
 
 const pool = new Pool();
-const app = buildApp(pool);
+const queue = createSourceQueue();
+const app = buildApp(pool, queue, process.env.SOURCE_DIR ?? "/data/sources");
 
 app.addHook("onClose", async () => {
+  await queue.close();
   await pool.end();
 });
 

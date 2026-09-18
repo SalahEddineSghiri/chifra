@@ -48,22 +48,53 @@ services:
       - internal
 
   api:
+    image: chiffra-server:local
     build:
       context: .
       dockerfile: Dockerfile.server
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       PGHOST: postgres
       PGUSER: chiffra
       PGPASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}
       PGDATABASE: chiffra
+      REDIS_HOST: redis
+      SOURCE_DIR: /data/sources
+    volumes:
+      - source_data:/data/sources
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 12
+    networks:
+      - internal
+
+  worker:
+    image: chiffra-server:local
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    command: ["node", "dist/server/worker-main.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: chiffra
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}
+      PGDATABASE: chiffra
+      REDIS_HOST: redis
+      SOURCE_DIR: /data/sources
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+    volumes:
+      - source_data:/data/sources
     networks:
       - internal
 
@@ -85,3 +116,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  source_data:

@@ -19,6 +19,16 @@ services:
     networks:
       - test_internal
 
+  redis_test:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - test_internal
+
   sql_tests:
     image: postgres:16-alpine
     depends_on:
@@ -61,11 +71,14 @@ services:
         condition: service_completed_successfully
       contracts_tests:
         condition: service_completed_successfully
+      redis_test:
+        condition: service_healthy
     environment:
       PGHOST: postgres_test
       PGUSER: chiffra_test
       PGPASSWORD: local-sql-tests-only
       PGDATABASE: chiffra_test
+      REDIS_HOST: redis_test
     command: ["npm", "run", "test:server"]
     networks:
       - test_internal

@@ -26,6 +26,8 @@ label { display: block; font-weight: 600; margin-bottom: 8px; }
 
 input { flex: 1; min-width: 0; padding: 11px 12px; border: 1px solid #aebfba; border-radius: 6px; font: inherit; }
 
+input[type="file"] { background: #fff; }
+
 button { padding: 11px 18px; border: 0; border-radius: 6px; background: #17685d; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
 
 button:disabled { opacity: .55; cursor: not-allowed; }
@@ -43,6 +45,18 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .meta { text-align: right; white-space: nowrap; }
 
 .meta time { display: block; margin-top: 5px; }
+
+.batch-select { padding: 0; border: 0; background: none; color: #17685d; text-align: left; font-weight: 700; }
+
+.batch-select:hover { text-decoration: underline; }
+
+.source-list { list-style: none; padding: 0; margin: 18px 0 0; }
+
+.source-list li { padding: 16px 0; border-top: 1px solid #e3ebe7; }
+
+.status { margin-left: 12px; color: #17685d; font-size: .85rem; font-weight: 700; }
+
+.source-list pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; background: #f3f6f4; padding: 12px; border-radius: 6px; }
 
 @media (max-width: 600px) {
   .form-row, .batch-list li { flex-direction: column; }
