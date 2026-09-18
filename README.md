@@ -14,6 +14,6 @@ Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé 
 
 Le Compose actuel définit PostgreSQL 16 et Redis 7 sur un réseau propre à Chiffra, sans port publié sur l'hôte. Le mot de passe PostgreSQL est fourni dans `.env` à partir du champ vide de `.env.example` ; aucune valeur secrète n'est livrée. Les volumes conservent les données entre redémarrages.
 
-Sur une base neuve, `db/migrations/001_sources.sql` crée les lots et les sources physiques avec une contrainte de réimport du même contenu dans un lot. Une source n'est pas encore une facture métier. L'application des migrations sur un volume déjà existant sera ajoutée avant que le démarrage complet ne soit annoncé comme autonome. Ce Compose partiel ne fournit aucune interface utilisateur.
+Sur une base neuve, `db/migrations/001_sources.sql` crée les lots et les sources physiques avec une contrainte de réimport du même contenu dans un lot. Le service ponctuel `migrate` applique ensuite la migration 2, y compris sur un volume déjà existant, et peut être relancé sans recréer les tables. La migration 2 conserve les tentatives d'extraction de texte et impose un motif pour les échecs ou les documents non traités. Une source n'est pas encore une facture métier. Ce Compose partiel ne fournit aucune interface utilisateur.
 
 Quand l'application sera livrée, ce README décrira son démarrage et ses tests locaux depuis un clone propre, sans dépendance au poste de développement ni à un VPS particulier.

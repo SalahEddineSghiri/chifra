@@ -18,6 +18,22 @@ services:
     networks:
       - internal
 
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: chiffra
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}
+      PGDATABASE: chiffra
+    volumes:
+      - ./db:/db:ro
+    entrypoint: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/db/migrate.sql"]
+    networks:
+      - internal
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
