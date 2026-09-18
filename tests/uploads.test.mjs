@@ -115,6 +115,7 @@ test("upload PDF, extraction réelle et document sans texte explicite", async ()
     const invoiceList = await app.inject({ method: "GET", url: `/api/batches/${batchId}/sources` });
     const invoiceSource = invoiceList.json().sources.find((item) => item.id === invoiceId);
     assert.equal(invoiceSource.observationStatus, "COMPLETE");
+    assert.equal(invoiceSource.observationVersion, "labels-v1");
     assert.deepEqual(invoiceSource.observations.amountTtc, {
       value: "9360.00", page: 1, missingReason: null,
     });

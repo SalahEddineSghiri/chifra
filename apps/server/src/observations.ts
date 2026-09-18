@@ -20,7 +20,7 @@ type Candidate = { value: string; page: number };
 
 function field(candidates: Candidate[]): ObservedField {
   if (candidates.length === 0) {
-    return { value: null, page: null, missingReason: "Champ non trouvé dans le texte." };
+    return { value: null, page: null, missingReason: "Champ absent ou format non reconnu dans le texte." };
   }
   const distinct = new Set(candidates.map((candidate) => candidate.value));
   if (distinct.size !== 1) {
@@ -69,7 +69,8 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
   for (const [index, line] of lines.entries()) {
     const text = line.text;
     const next = lines[index + 1];
-    if (index === 0 && next?.page === line.page && /^ICE\s*[: ]?\s*\d{15}\b/i.test(next.text)) {
+    if (index === 0 && next?.page === line.page && /^ICE\s*[: ]?\s*\d{15}\b/i.test(next.text)
+      && !/^(?:FACTURE|AVOIR|ICE\b)/i.test(text)) {
       add("supplierName", text, line.page);
     }
     const supplierIce = /^ICE\s*[: ]?\s*(\d{15})\b/i.exec(text);
@@ -94,8 +95,17 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
     if (ttc) add("amountTtc", nextValue(lines, index, ttc[1] ?? "", normaliseAmount), line.page);
   }
 
-  const fields = Object.fromEntries(observationNames.map((name) => [name, field(candidates[name])]))
-    as Record<ObservationName, ObservedField>;
+  const fields = {
+    supplierName: field(candidates.supplierName),
+    supplierIce: field(candidates.supplierIce),
+    customerIce: field(candidates.customerIce),
+    invoiceNumber: field(candidates.invoiceNumber),
+    issuedOn: field(candidates.issuedOn),
+    amountHt: field(candidates.amountHt),
+    vatAmount: field(candidates.vatAmount),
+    amountTtc: field(candidates.amountTtc),
+    printedVatRate: field(candidates.printedVatRate),
+  };
   return {
     status: observationNames.every((name) => fields[name].value !== null) ? "COMPLETE" : "PARTIAL",
     fields,

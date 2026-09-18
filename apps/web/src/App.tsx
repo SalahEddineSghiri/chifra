@@ -42,6 +42,7 @@ const sourceSchema = z.object({
   failureReason: z.string().nullable(),
   textPreview: z.string().nullable(),
   observationStatus: z.enum(["COMPLETE", "PARTIAL"]).nullable(),
+  observationVersion: z.string().nullable(),
   observations: observationFieldsSchema.nullable(),
 });
 const sourcesSchema = z.object({ sources: z.array(sourceSchema) });
@@ -128,7 +129,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
               {source.failureReason && <p>{source.failureReason}</p>}
               {source.observations && (
                 <div className="observations">
-                  <p>Champs lus automatiquement, à vérifier sur la pièce source ({source.observationStatus}).</p>
+                  <p>Champs lus automatiquement, à vérifier sur la pièce source ({source.extractionMethod} / {source.observationVersion} ; {source.observationStatus}).</p>
                   <dl>
                     {observationLabels.map(([name, label]) => {
                       const observed = source.observations?.[name];

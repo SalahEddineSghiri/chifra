@@ -24,6 +24,7 @@ type SourceRow = {
   failure_reason: string | null;
   text_preview: string | null;
   observation_status: string | null;
+  observation_version: string | null;
   observations: unknown | null;
 };
 
@@ -46,7 +47,8 @@ export function registerSourceRoutes(
       `SELECT sf.id, sf.original_filename, sf.status, sf.created_at,
               se.status AS extraction_status, se.method AS extraction_method,
               se.failure_reason, left(se.text_content, 2000) AS text_preview,
-              so.status AS observation_status, so.fields AS observations
+              so.status AS observation_status, so.parser_version AS observation_version,
+              so.fields AS observations
          FROM source_files sf
          LEFT JOIN LATERAL (
            SELECT status, method, failure_reason, text_content
@@ -71,6 +73,7 @@ export function registerSourceRoutes(
         failureReason: row.failure_reason,
         textPreview: row.text_preview,
         observationStatus: row.observation_status,
+        observationVersion: row.observation_version,
         observations: row.observations,
       })),
     };
