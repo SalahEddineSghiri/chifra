@@ -1,0 +1,18 @@
+FROM node:24-alpine AS build
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.server.json ./
+COPY apps/server/src ./apps/server/src
+COPY tests/batches.test.mjs ./tests/batches.test.mjs
+RUN npm run typecheck:server && npm run build:server
+
+FROM node:24-alpine
+
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/dist/server ./dist/server
+CMD ["node", "dist/server/api.js"]

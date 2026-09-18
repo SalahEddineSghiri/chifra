@@ -44,6 +44,32 @@ services:
     networks:
       - test_internal
 
+  contracts_tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.contracts
+    networks:
+      - test_internal
+
+  api_tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      target: build
+    depends_on:
+      sql_tests:
+        condition: service_completed_successfully
+      contracts_tests:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: postgres_test
+      PGUSER: chiffra_test
+      PGPASSWORD: local-sql-tests-only
+      PGDATABASE: chiffra_test
+    command: ["npm", "run", "test:server"]
+    networks:
+      - test_internal
+
 networks:
   test_internal:
     internal: true
