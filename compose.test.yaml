@@ -1,0 +1,47 @@
+name: chiffra-sql-test
+
+services:
+  postgres_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: chiffra_test
+      POSTGRES_USER: chiffra_test
+      POSTGRES_PASSWORD: local-sql-tests-only
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./db/migrations/001_sources.sql:/docker-entrypoint-initdb.d/001_sources.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - test_internal
+
+  sql_tests:
+    image: postgres:16-alpine
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres_test
+      PGUSER: chiffra_test
+      PGPASSWORD: local-sql-tests-only
+      PGDATABASE: chiffra_test
+    volumes:
+      - ./db:/db:ro
+      - ./tests:/tests:ro
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        psql -X -v ON_ERROR_STOP=1 -f /db/migrate.sql
+        psql -X -v ON_ERROR_STOP=1 -f /tests/sources.sql
+        psql -X -v ON_ERROR_STOP=1 -f /tests/migrations.sql
+    networks:
+      - test_internal
+
+networks:
+  test_internal:
+    internal: true
