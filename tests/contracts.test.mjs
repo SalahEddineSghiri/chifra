@@ -5,7 +5,10 @@ import {
   initialState, markNonTraite, stateSchema,
 } from "../dist/index.js";
 
-const source = { sourceId: "src-1", page: 1, row: null };
+const source = {
+  sourceId: "src-1", page: 1, row: null,
+  extractionMethod: "PDF_TEXT", extractionVersion: "poppler-v1",
+};
 const read = (value) => ({ value, source, missingReason: null });
 const missing = (reason) => ({ value: null, source: null, missingReason: reason });
 const observations = {
@@ -13,7 +16,7 @@ const observations = {
   supplierIce: missing("ICE illisible"), customerIce: read("001987654000073"),
   issuedOn: read("2026-02-10"), amountHt: read("1000.00"),
   vatAmount: read("70.00"), amountTtc: read("1070.00"),
-  printedVatRate: read("7"), extractionMethod: "PDF_TEXT",
+  printedVatRate: read("7"),
 };
 
 test("état initial sérialisable avec inconnues à null", () => {
@@ -27,6 +30,11 @@ test("Ingestor refuse les champs dérivés et les montants flottants", () => {
   const ingested = acceptIngestor(state, { observations });
   assert.equal(ingested.control.stage, "INGESTED");
   assert.equal(ingested.observations.supplierIce.value, null);
+  const ocrSource = { ...source, extractionMethod: "OCR", extractionVersion: "tesseract-v1" };
+  const mixed = acceptIngestor(state, {
+    observations: { ...observations, amountTtc: { value: "1070.00", source: ocrSource, missingReason: null } },
+  });
+  assert.equal(mixed.observations.amountTtc.source.extractionMethod, "OCR");
   assert.throws(() => acceptIngestor(state, { observations, expectedVat: "200.00" }));
   assert.throws(() => acceptIngestor(state, { observations: { ...observations, amountHt: read(1000) } }));
   assert.throws(() => acceptIngestor(state, { observations: { ...observations, amountTtc: missing("") } }));

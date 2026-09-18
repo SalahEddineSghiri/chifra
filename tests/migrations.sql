@@ -8,8 +8,8 @@ DECLARE
   empty_success_rejected boolean := false;
   missing_reason_rejected boolean := false;
 BEGIN
-  IF (SELECT count(*) FROM schema_migrations WHERE version IN (1, 2)) <> 2 THEN
-    RAISE EXCEPTION 'Migrations 1 et 2 attendues';
+  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 6) <> 6 THEN
+    RAISE EXCEPTION 'Migrations 1 à 6 attendues';
   END IF;
 
   INSERT INTO batches (id) VALUES (test_batch);
@@ -59,6 +59,40 @@ BEGIN
 
   IF NOT duplicate_rejected OR NOT empty_success_rejected OR NOT missing_reason_rejected THEN
     RAISE EXCEPTION 'Contraintes d extraction non appliquées';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  test_source uuid;
+  test_extraction uuid;
+  missing_status_reason_rejected boolean := false;
+BEGIN
+  SELECT id INTO test_source FROM source_files WHERE content_sha256 = repeat('c', 64);
+  SELECT id INTO test_extraction
+    FROM source_extractions
+   WHERE source_id = test_source AND status = 'SUCCEEDED'
+   LIMIT 1;
+
+  INSERT INTO source_observations (
+    source_id, extraction_id, parser_version, status, fields
+  ) VALUES (
+    test_source, test_extraction, 'test-v1', 'PARTIAL', '{}'::jsonb
+  );
+  INSERT INTO source_observation_inputs (source_id, extraction_id)
+  VALUES (test_source, test_extraction);
+
+  IF (SELECT count(*) FROM source_observation_inputs WHERE source_id = test_source) <> 1 THEN
+    RAISE EXCEPTION 'Provenance des observations absente';
+  END IF;
+
+  BEGIN
+    UPDATE source_files SET status = 'NON_TRAITE' WHERE id = test_source;
+  EXCEPTION WHEN check_violation THEN
+    missing_status_reason_rejected := true;
+  END;
+  IF NOT missing_status_reason_rejected THEN
+    RAISE EXCEPTION 'Motif terminal obligatoire non appliqué';
   END IF;
 END $$;
 

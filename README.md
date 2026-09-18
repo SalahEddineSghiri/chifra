@@ -2,52 +2,60 @@
 
 Chiffra vise à traiter des lots de factures et de relevés bancaires : extraction des données comptables, rapprochement des paiements, contrôles fiscaux, anomalies sourcées et revue humaine.
 
-Le projet est en construction. On peut créer un lot, déposer un PDF texte, suivre son traitement par le worker et consulter le texte ainsi que les champs lus automatiquement. Chaque champ présent porte sa page ; un champ absent ou ambigu reste vide avec un motif. Ces observations ne sont pas encore des factures validées ni des calculs comptables. Les scans sans couche texte reçoivent un état `NON_TRAITE` et un motif ; l'OCR, les autres formats et les analyses métier ne sont pas encore disponibles. Aucune exigence métier EX-01 à EX-08 n'est déclarée validée.
+Le projet est en construction. On peut créer un lot, déposer un PDF ou une image JPG, suivre son traitement par le worker et consulter le texte ainsi que les champs lus automatiquement. Le texte natif des PDF reste prioritaire ; Tesseract traite les pages scannées et les JPG sur CPU. Chaque champ présent porte sa page ; un champ absent ou ambigu reste vide avec un motif. Ces observations ne sont pas encore des factures validées ni des calculs comptables.
+
+EX-01 et EX-02 restent partielles : les PDF texte, les PDF scannés et les JPG sont couverts, avec une limite de 15 Mo et 30 pages par PDF. Les CSV, XLSX, relevés bancaires, lots fermés de 50 pièces et contrôles sur le corpus complet restent à réaliser. Les calculs futurs devront rester déterministes et sourcés conformément à EX-07. Une pièce sans texte exploitable après OCR reste explicitement `NON_TRAITE`, conformément à EX-08.
 
 ## Démarrage local
 
-Copier `.env.example` vers `.env`, puis renseigner `POSTGRES_PASSWORD`. Les clés Azure peuvent rester vides pour la création des lots et l'extraction PDF texte. Depuis la racine du clone :
+Copier `.env.example` vers `.env`, puis renseigner `POSTGRES_PASSWORD`. Les clés Azure peuvent rester vides pour les fonctionnalités disponibles. Depuis la racine du clone :
 
 ```sh
 docker compose up -d --build
 ```
 
-L'interface est disponible sur `http://localhost:8081`, ou sur le port défini par `WEB_PORT`. Le Compose principal démarre les services disponibles et applique les migrations avant l'API. Les tests restent facultatifs et séparés.
+L’interface est disponible sur `http://localhost:8081`, ou sur le port défini par `WEB_PORT`. Le Compose principal applique les migrations avant l’API et démarre PostgreSQL, Redis, l’API, le worker et le service web avec Nginx. Les tests restent facultatifs et séparés.
 
 ## Contrat livré
 
-`packages/contracts/src/index.ts` sépare contrôle du traitement, observations sourcées, références, résultats calculés et revue. Les montants et taux sont des chaînes décimales ; une observation inconnue vaut `null` et porte un motif. Les objets refusent les champs supplémentaires. Les gardes `accept*` imposent l'ordre des transitions et limitent chaque rôle à sa partie de l'état. Elles ne prouvent pas encore l'appel effectif d'un outil financier : cette preuve sera ajoutée avec le moteur et la persistance.
+`packages/contracts/src/index.ts` sépare contrôle du traitement, observations sourcées, références, résultats calculés et revue. Les montants et taux sont des chaînes décimales ; une observation inconnue vaut `null` et porte un motif. Une valeur lue identifie aussi la méthode et la version de son extraction. Les objets refusent les champs supplémentaires. Les gardes `accept*` imposent l’ordre des transitions et limitent chaque rôle à sa partie de l’état. Elles ne prouvent pas encore l’appel effectif d’un outil financier.
 
-Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé en fin de support. TypeScript utilise `strict: true`. Le contrôle de types, la compilation et les quatre tests du contrat ont réussi dans un conteneur Docker sur un VPS Linux le 17 septembre 2026 (code de sortie 0). Cette vérification porte sur le contrat seulement ; elle ne valide pas encore l'application complète ni une autre plateforme.
+Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé en fin de support. TypeScript utilise `strict: true`.
 
-## Stockage en cours de construction
+## Stockage
 
-Le Compose actuel définit PostgreSQL 16, Redis 7, l'API, le worker et l'interface sur un réseau propre à Chiffra. L'API et le worker utilisent la même image. Seule l'interface est publiée sur `127.0.0.1` ; PostgreSQL et Redis ne publient aucun port. Le mot de passe PostgreSQL est fourni dans `.env` à partir du champ vide de `.env.example` ; aucune valeur secrète n'est livrée. Les volumes conservent la base, Redis et les PDF entre redémarrages.
+Le Compose définit PostgreSQL 16, Redis 7, l’API, le worker et l’interface sur un réseau propre à Chiffra. L’API et le worker utilisent la même image avec des processus distincts. Seule l’interface est publiée sur `127.0.0.1` ; PostgreSQL et Redis ne publient aucun port. Les volumes conservent la base, Redis et les sources entre redémarrages.
 
-Au démarrage normal de Compose, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 5. Sur un volume existant, `migrate` applique seulement les migrations manquantes. La migration 1 crée les lots et les sources physiques avec une contrainte de réimport du même contenu dans un lot. La migration 2 conserve les tentatives d'extraction de texte et impose un motif pour les échecs ou les documents non traités. Une source n'est pas encore une facture métier.
+Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 6. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page, observations et provenance des observations. Une source n’est pas encore une facture métier.
 
-La migration 3 conserve les passages extraits avec leur page ou ligne. La confiance, si elle est réellement fournie par l'outil, est exprimée en pourcentage ; sinon elle reste `NULL`. La migration 4 ajoute le nom facultatif des lots existants ; les nouveaux lots créés par l'API exigent un nom. La migration 5 conserve les champs lus dans le PDF et leur version de lecture. Au premier démarrage du nouveau worker, les PDF texte déjà traités et sans ces champs sont relus.
+La confiance reste `NULL`, car le parcours actuel ne collecte pas une mesure suffisamment fiable pour la publier. Le motif d’un état terminal est conservé. Au premier démarrage de cette version, le worker reprend les traitements interrompus et les anciens PDF qui attendaient l’OCR.
 
-## PDF texte
+## PDF et JPG
 
-Dans un lot ouvert, l'interface accepte un PDF de 15 Mo maximum. L'API vérifie sa signature et le dédoublonne par empreinte dans le lot ; le worker lit réellement le texte avec Poppler, page par page, puis conserve le résultat et les références de page dans PostgreSQL. Un parseur de libellés explicites relève le tiers, la date, le numéro et les montants imprimés quand ils sont reconnaissables ; il ne calcule ni total attendu ni conformité fiscale. Le texte affiché est un aperçu de 2 000 caractères. Un PDF de plus de 30 pages, sans texte ou avec une page sans texte reste `NON_TRAITE` avec un motif explicite. Cette étape ne reconnaît pas encore les images.
+Dans un lot ouvert, l’interface accepte un PDF ou un JPG de 15 Mo maximum. L’API vérifie le format réel et dédoublonne le contenu dans le lot. Les JPEG sont limités à 40 millions de pixels et 20 000 pixels par côté. Le worker lit d’abord le texte PDF avec Poppler puis applique Tesseract 5 en français et anglais uniquement aux pages sans texte et aux JPG. Le rendu d’une page PDF est limité à 3 500 pixels par côté.
+
+Le worker traite au plus deux sources en parallèle par défaut, avec une valeur configurable de 1 à 4. Chaque commande OCR dispose de 60 secondes et le rendu d’une page de 45 secondes. Une erreur technique est retentée trois fois avec attente progressive ; une sortie sans texte exploitable devient `NON_TRAITE`. Une extraction lisible reste `DONE` même si ses champs sont absents, ambigus ou arithmétiquement incohérents. Le parseur relève seulement les valeurs imprimées et ne calcule aucun total attendu ni conformité fiscale.
 
 ## Tests avec Docker
 
-Depuis la racine du clone, cette commande lance les tests SQL dans des conteneurs Docker, sans installer PostgreSQL sur le PC :
+Cette commande exécute uniquement les migrations et tests SQL dans une base isolée :
 
 ```sh
 docker compose -f compose.test.yaml up --force-recreate --abort-on-container-exit --exit-code-from sql_tests sql_tests
 ```
 
-`compose.test.yaml` crée une base de test séparée, sans port publié et avec des données temporaires. Il applique les migrations 1 à 5, puis exécute `tests/sources.sql`, `tests/migrations.sql` et `tests/segments.sql`. Pour vérifier aussi la création d'un lot dans l'API et sa persistance, partir d'un environnement de test neuf :
+Pour exécuter les tests du contrat, de l’API, du worker et le parcours OCR complet à travers Nginx :
 
 ```sh
-docker compose -f compose.test.yaml down
-docker compose -f compose.test.yaml build api_tests contracts_tests
-docker compose -f compose.test.yaml run --rm api_tests
+docker compose -f compose.test.yaml down -v
+docker compose -f compose.test.yaml build
+docker compose -f compose.test.yaml run --rm e2e_tests
 ```
 
-Cette seconde commande exécute également les tests SQL et les tests du contrat dont elle dépend. Elle vérifie l'upload, le traitement réel d'un PDF texte, la persistance des champs sourcés, le refus d'un doublon et l'état d'un PDF sans texte dans des conteneurs isolés. Les tests facultatifs ne touchent pas aux volumes de l'application. Le code de sortie de chaque commande est celui de ses tests. Pour retirer ensuite les conteneurs de test : `docker compose -f compose.test.yaml down`.
+La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, un PDF scanné, des JPG lisibles, ambigus et illisibles, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Le test final charge un JPG par le Nginx du service web et vérifie l’API, le worker, les champs attendus et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
 
-Les autres parcours métier et leurs vérifications seront ajoutés au fur et à mesure de leur livraison.
+```sh
+docker compose -f compose.test.yaml down -v
+```
+
+Les parcours CSV/XLSX, le rapprochement bancaire, les contrôles comptables et fiscaux, l’agent, l’Explainer et la revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.

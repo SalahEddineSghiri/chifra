@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Pool } from "pg";
 import { buildApp } from "../dist/server/app.js";
-import { createSourceQueue } from "../dist/server/queue.js";
+import { createSourceQueue, enqueueSource } from "../dist/server/queue.js";
 import { startSourceWorker } from "../dist/server/worker.js";
 
 function makePdf(text) {
@@ -22,35 +23,58 @@ function makePdf(text) {
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
   ];
-  let body = "%PDF-1.4\n";
-  const offsets = [];
-  for (const [index, object] of objects.entries()) {
-    offsets.push(Buffer.byteLength(body));
-    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  }
-  const xrefOffset = Buffer.byteLength(body);
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets) {
-    body += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  }
-  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-  return Buffer.from(body);
+  return assemblePdf(objects.map((object) => Buffer.from(object)));
 }
 
-function multipartPdf(pdf) {
+function makeImagePdf(jpeg, width, height) {
+  const content = "q 612 0 0 612 0 90 cm /Im0 Do Q";
+  return assemblePdf([
+    Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
+    Buffer.from("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+    Buffer.from("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>"),
+    Buffer.concat([
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`),
+      jpeg,
+      Buffer.from("\nendstream"),
+    ]),
+    Buffer.from(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`),
+  ]);
+}
+
+function assemblePdf(objects) {
+  const parts = [Buffer.from("%PDF-1.4\n")];
+  const offsets = [];
+  let length = parts[0].length;
+  for (const [index, object] of objects.entries()) {
+    offsets.push(length);
+    const part = Buffer.concat([
+      Buffer.from(`${index + 1} 0 obj\n`), object, Buffer.from("\nendobj\n"),
+    ]);
+    parts.push(part);
+    length += part.length;
+  }
+  const xrefOffset = length;
+  let trailer = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) trailer += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  trailer += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  parts.push(Buffer.from(trailer));
+  return Buffer.concat(parts);
+}
+
+function multipartFile(content, filename, mediaType) {
   const boundary = `chiffra-${randomUUID()}`;
   return {
     headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
     payload: Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.pdf"\r\nContent-Type: application/pdf\r\n\r\n`),
-      pdf,
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mediaType}\r\n\r\n`),
+      content,
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]),
   };
 }
 
 async function waitForStatus(pool, sourceId, expected) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     const result = await pool.query("SELECT status FROM source_files WHERE id = $1", [sourceId]);
     const status = result.rows[0]?.status;
     if (status === expected) return;
@@ -62,86 +86,157 @@ async function waitForStatus(pool, sourceId, expected) {
   assert.fail(`Délai dépassé pour le statut ${expected}`);
 }
 
-test("upload PDF, extraction réelle et document sans texte explicite", async () => {
+async function upload(app, batchId, content, filename, mediaType) {
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/sources`,
+    ...multipartFile(content, filename, mediaType),
+  });
+  assert.equal(response.statusCode, 202, response.body);
+  return response.json().source.id;
+}
+
+async function readSource(app, batchId, sourceId) {
+  const response = await app.inject({ method: "GET", url: `/api/batches/${batchId}/sources` });
+  assert.equal(response.statusCode, 200);
+  return response.json().sources.find((item) => item.id === sourceId);
+}
+
+test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", async () => {
   const sourceDir = await mkdtemp(join(tmpdir(), "chiffra-sources-"));
   const pool = new Pool();
   const queue = createSourceQueue();
   const app = buildApp(pool, queue, sourceDir);
-  const closeWorker = await startSourceWorker(pool, queue, sourceDir);
+  let closeWorker = await startSourceWorker(pool, queue, sourceDir);
+  const invoiceJpeg = await readFile(new URL("./fixtures/ocr-invoice.jpg", import.meta.url));
+  const ambiguousJpeg = await readFile(new URL("./fixtures/ocr-ambiguous.jpg", import.meta.url));
+  const blankJpeg = await readFile(new URL("./fixtures/ocr-blank.jpg", import.meta.url));
 
   try {
     const created = await app.inject({
-      method: "POST", url: "/api/batches", payload: { name: `Lot PDF ${randomUUID()}` },
+      method: "POST", url: "/api/batches", payload: { name: `Lot sources ${randomUUID()}` },
     });
     assert.equal(created.statusCode, 201);
     const batchId = created.json().batch.id;
 
-    const pdf = makePdf("CHIFFRA_TEXTE_TEST");
-    const uploaded = await app.inject({
-      method: "POST", url: `/api/batches/${batchId}/sources`, ...multipartPdf(pdf),
-    });
-    assert.equal(uploaded.statusCode, 202, uploaded.body);
-    const sourceId = uploaded.json().source.id;
-    await waitForStatus(pool, sourceId, "DONE");
-
-    const listed = await app.inject({
-      method: "GET", url: `/api/batches/${batchId}/sources`,
-    });
-    assert.equal(listed.statusCode, 200);
-    const source = listed.json().sources.find((item) => item.id === sourceId);
-    assert.equal(source.extractionStatus, "SUCCEEDED");
-    assert.match(source.textPreview, /CHIFFRA_TEXTE_TEST/);
-    const segments = await pool.query(
-      "SELECT page_number, text_content, confidence_percent FROM source_extraction_segments WHERE extraction_id = (SELECT id FROM source_extractions WHERE source_id = $1)",
-      [sourceId],
-    );
-    assert.equal(segments.rows[0]?.page_number, 1);
-    assert.match(segments.rows[0]?.text_content, /CHIFFRA_TEXTE_TEST/);
-    assert.equal(segments.rows[0]?.confidence_percent, null);
-    assert.equal(source.observationStatus, "PARTIAL");
-    assert.equal(source.observations.amountHt.value, null);
-
-    const invoice = makePdf([
-      "FOURNISSEUR EXEMPLE", "ICE 005678901000091", "FACTURE N FA-2026-0001",
-      "Date 2026-01-01", "ICE client 001987654000073", "Total HT 7800.00",
-      "TVA 20% 1560.00", "Net a payer TTC 9360.00",
+    const oversizedJpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08,
+      0x00, 0x01, 0xff, 0xff, 0x03, 0x01, 0x11, 0x00,
+      0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xd9,
     ]);
-    const invoiceUpload = await app.inject({
-      method: "POST", url: `/api/batches/${batchId}/sources`, ...multipartPdf(invoice),
+    const oversized = await app.inject({
+      method: "POST", url: `/api/batches/${batchId}/sources`,
+      ...multipartFile(oversizedJpeg, "trop-large.jpg", "image/jpeg"),
     });
-    assert.equal(invoiceUpload.statusCode, 202, invoiceUpload.body);
-    const invoiceId = invoiceUpload.json().source.id;
-    await waitForStatus(pool, invoiceId, "DONE");
-    const invoiceList = await app.inject({ method: "GET", url: `/api/batches/${batchId}/sources` });
-    const invoiceSource = invoiceList.json().sources.find((item) => item.id === invoiceId);
-    assert.equal(invoiceSource.observationStatus, "COMPLETE");
-    assert.equal(invoiceSource.observationVersion, "labels-v1");
-    assert.deepEqual(invoiceSource.observations.amountTtc, {
+    assert.equal(oversized.statusCode, 415);
+
+    const nativeId = await upload(
+      app, batchId,
+      makePdf(["FOURNISSEUR EXEMPLE", "ICE 005678901000091", "Total HT 7800.00"]),
+      "native.pdf", "application/pdf",
+    );
+    await waitForStatus(pool, nativeId, "DONE");
+    const native = await readSource(app, batchId, nativeId);
+    assert.deepEqual(native.extractions.map((item) => item.method), ["PDF_TEXT"]);
+    assert.match(native.textPreview, /FOURNISSEUR EXEMPLE/);
+
+    const jpgId = await upload(app, batchId, invoiceJpeg, "facture.jpg", "image/jpeg");
+    await waitForStatus(pool, jpgId, "DONE");
+    const jpg = await readSource(app, batchId, jpgId);
+    assert.equal(jpg.mediaType, "image/jpeg");
+    assert.deepEqual(jpg.extractions.map((item) => item.method), ["OCR"]);
+    assert.equal(jpg.observationStatus, "COMPLETE");
+    assert.deepEqual(jpg.observations.amountTtc, {
       value: "9360.00", page: 1, missingReason: null,
     });
-    const persisted = await pool.query(
-      "SELECT parser_version, fields->'amountHt'->>'value' AS ht FROM source_observations WHERE source_id = $1",
-      [invoiceId],
+    assert.equal(jpg.observations.supplierIce.value, "005678901000091");
+    const confidence = await pool.query(
+      `SELECT confidence_percent FROM source_extraction_segments
+        WHERE extraction_id = (SELECT id FROM source_extractions
+          WHERE source_id = $1 AND method = 'OCR')`,
+      [jpgId],
     );
-    assert.equal(persisted.rows[0]?.parser_version, "labels-v1");
-    assert.equal(persisted.rows[0]?.ht, "7800.00");
+    assert.equal(confidence.rows[0]?.confidence_percent, null);
+
+    const scanId = await upload(
+      app, batchId, makeImagePdf(invoiceJpeg, 1800, 1300), "scan.pdf", "application/pdf",
+    );
+    await waitForStatus(pool, scanId, "DONE");
+    const scan = await readSource(app, batchId, scanId);
+    assert.deepEqual(scan.extractions.map((item) => [item.method, item.status]), [
+      ["PDF_TEXT", "NON_TRAITE"], ["OCR", "SUCCEEDED"],
+    ]);
+    assert.equal(scan.observations.invoiceNumber.value, "FA-2026-0001");
+    assert.equal(scan.observations.amountHt.value, "7800.00");
+
+    const ambiguousId = await upload(
+      app, batchId, ambiguousJpeg, "ambigue.jpg", "image/jpeg",
+    );
+    await waitForStatus(pool, ambiguousId, "DONE");
+    const ambiguous = await readSource(app, batchId, ambiguousId);
+    assert.equal(ambiguous.observationStatus, "PARTIAL");
+    assert.equal(ambiguous.observations.amountHt.value, null);
+    assert.match(ambiguous.observations.amountHt.missingReason, /Plusieurs valeurs/);
+    assert.equal(ambiguous.observations.amountTtc.value, "9000.00");
+
+    const blankId = await upload(app, batchId, blankJpeg, "illisible.jpg", "image/jpeg");
+    await waitForStatus(pool, blankId, "NON_TRAITE");
+    const blank = await readSource(app, batchId, blankId);
+    assert.match(blank.failureReason, /illisible/);
+    assert.equal(blank.observations, null);
+
+    await closeWorker();
+    const technicalJpeg = Buffer.concat([invoiceJpeg, Buffer.from([0])]);
+    const technicalId = await upload(
+      app, batchId, technicalJpeg, "erreur-technique.jpg", "image/jpeg",
+    );
+    const technicalFile = await pool.query(
+      "SELECT storage_key FROM source_files WHERE id = $1", [technicalId],
+    );
+    await rm(join(sourceDir, technicalFile.rows[0].storage_key));
+    closeWorker = await startSourceWorker(pool, queue, sourceDir);
+    await waitForStatus(pool, technicalId, "FAILED");
+    const technical = await readSource(app, batchId, technicalId);
+    assert.match(technical.failureReason, /Erreur technique OCR après 3 tentatives/);
+    assert.equal(technical.extractions.at(-1).status, "FAILED");
+    let failedJob;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      failedJob = await queue.getJob(technicalId);
+      if (failedJob && await failedJob.getState() === "failed") break;
+      await sleep(100);
+    }
+    assert.ok(failedJob);
+    assert.equal(await failedJob.getState(), "failed");
+    assert.equal(failedJob.attemptsMade, 3);
+
+    const beforeReplay = await pool.query(
+      "SELECT count(*)::int AS count FROM source_extractions WHERE source_id = $1", [jpgId],
+    );
+    await enqueueSource(queue, jpgId);
+    await sleep(500);
+    const afterReplay = await pool.query(
+      "SELECT count(*)::int AS count FROM source_extractions WHERE source_id = $1", [jpgId],
+    );
+    assert.equal(afterReplay.rows[0]?.count, beforeReplay.rows[0]?.count);
+
+    await closeWorker();
+    await pool.query("UPDATE source_files SET status = 'PROCESSING' WHERE id = $1", [jpgId]);
+    closeWorker = await startSourceWorker(pool, queue, sourceDir);
+    await waitForStatus(pool, jpgId, "DONE");
+    const afterRestart = await pool.query(
+      `SELECT count(*)::int AS extractions,
+              (SELECT count(*)::int FROM source_observation_inputs WHERE source_id = $1) AS inputs
+         FROM source_extractions WHERE source_id = $1`,
+      [jpgId],
+    );
+    assert.equal(afterRestart.rows[0]?.extractions, 1);
+    assert.equal(afterRestart.rows[0]?.inputs, 1);
 
     const duplicate = await app.inject({
-      method: "POST", url: `/api/batches/${batchId}/sources`, ...multipartPdf(pdf),
+      method: "POST", url: `/api/batches/${batchId}/sources`,
+      ...multipartFile(invoiceJpeg, "copie.jpg", "image/jpeg"),
     });
     assert.equal(duplicate.statusCode, 409);
-
-    const blank = await app.inject({
-      method: "POST", url: `/api/batches/${batchId}/sources`, ...multipartPdf(makePdf("")),
-    });
-    assert.equal(blank.statusCode, 202, blank.body);
-    const blankId = blank.json().source.id;
-    await waitForStatus(pool, blankId, "NON_TRAITE");
-    const all = await app.inject({ method: "GET", url: `/api/batches/${batchId}/sources` });
-    const blankSource = all.json().sources.find((item) => item.id === blankId);
-    assert.match(blankSource.failureReason, /OCR requis/);
-    assert.equal(blankSource.textPreview, null);
-    assert.equal(blankSource.observations, null);
   } finally {
     await closeWorker();
     await app.close();

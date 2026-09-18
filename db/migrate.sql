@@ -45,4 +45,13 @@ SELECT CASE WHEN EXISTS (SELECT 1 FROM schema_migrations WHERE version = 5)
 INSERT INTO schema_migrations (version) VALUES (5);
 \endif
 
+SELECT CASE WHEN EXISTS (SELECT 1 FROM schema_migrations WHERE version = 6)
+  THEN 'false' ELSE 'true' END AS apply_006
+\gset
+
+\if :apply_006
+\ir migrations/006_ocr_provenance.sql
+INSERT INTO schema_migrations (version) VALUES (6);
+\endif
+
 COMMIT;

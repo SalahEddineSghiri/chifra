@@ -32,9 +32,17 @@ const observationLabels = [
   ["vatAmount", "TVA lue"], ["amountTtc", "Montant TTC lu"],
   ["printedVatRate", "Taux TVA imprimé"],
 ] as const;
+const extractionSchema = z.object({
+  method: z.enum(["PDF_TEXT", "OCR", "TABULAR"]),
+  version: z.string(),
+  status: z.string(),
+  reason: z.string().nullable(),
+  pages: z.array(z.number().int().positive()),
+});
 const sourceSchema = z.object({
   id: z.string().uuid(),
   filename: z.string(),
+  mediaType: z.string(),
   status: z.string(),
   createdAt: z.iso.datetime(),
   extractionStatus: z.string().nullable(),
@@ -44,6 +52,7 @@ const sourceSchema = z.object({
   observationStatus: z.enum(["COMPLETE", "PARTIAL"]).nullable(),
   observationVersion: z.string().nullable(),
   observations: observationFieldsSchema.nullable(),
+  extractions: z.array(extractionSchema),
 });
 const sourcesSchema = z.object({ sources: z.array(sourceSchema) });
 const uploadSchema = z.object({ source: z.object({ id: z.string().uuid(), status: z.string() }) });
@@ -92,7 +101,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
       formElement.reset();
       await loadSources();
     } catch {
-      setError("Envoi impossible. Vérifiez le PDF, sa taille et les doublons.");
+      setError("Envoi impossible. Vérifiez le PDF ou JPG, sa taille et les doublons.");
     } finally {
       setUploading(false);
     }
@@ -101,14 +110,14 @@ function BatchDetails({ batch }: { batch: Batch }) {
   return (
     <section aria-labelledby="sources-title" className="panel">
       <h2 id="sources-title">Fichiers du lot : {batch.name ?? batch.id}</h2>
-      <p>PDF texte uniquement pour cette étape. Un scan sans texte porte un motif explicite.</p>
+      <p>Les PDF texte sont lus directement. Les pages scannées et les images JPG passent par OCR.</p>
       <form onSubmit={(event) => void upload(event)}>
-        <label htmlFor="source-file">Ajouter un PDF (15 Mo maximum)</label>
+        <label htmlFor="source-file">Ajouter un PDF ou JPG (15 Mo maximum)</label>
         <div className="form-row">
           <input
             id="source-file"
             type="file"
-            accept="application/pdf,.pdf"
+            accept="application/pdf,image/jpeg,.pdf,.jpg,.jpeg"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             required
           />
@@ -127,6 +136,16 @@ function BatchDetails({ batch }: { batch: Batch }) {
               <strong>{source.filename}</strong>
               <span className="status">{source.status}</span>
               {source.failureReason && <p>{source.failureReason}</p>}
+              {source.extractions.length > 0 && (
+                <ul>
+                  {source.extractions.map((extraction) => (
+                    <li key={`${extraction.method}-${extraction.version}`}>
+                      {extraction.method} {extraction.version} : {extraction.status}
+                      {extraction.pages.length > 0 && ` — page(s) ${extraction.pages.join(", ")}`}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {source.observations && (
                 <div className="observations">
                   <p>Champs lus automatiquement, à vérifier sur la pièce source ({source.extractionMethod} / {source.observationVersion} ; {source.observationStatus}).</p>

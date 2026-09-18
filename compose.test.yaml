@@ -62,6 +62,7 @@ services:
       - test_internal
 
   api_tests:
+    image: chiffra-server:test
     build:
       context: .
       dockerfile: Dockerfile.server
@@ -83,6 +84,101 @@ services:
     networks:
       - test_internal
 
+  api_e2e:
+    image: chiffra-server:test
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      target: build
+    command: ["node", "dist/server/api.js"]
+    depends_on:
+      api_tests:
+        condition: service_completed_successfully
+      redis_test:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres_test
+      PGUSER: chiffra_test
+      PGPASSWORD: local-sql-tests-only
+      PGDATABASE: chiffra_test
+      REDIS_HOST: redis_test
+      SOURCE_DIR: /data/sources
+    volumes:
+      - source_test_data:/data/sources
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks:
+      test_internal:
+        aliases:
+          - api
+
+  worker_e2e:
+    image: chiffra-server:test
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      target: build
+    command: ["node", "dist/server/worker-main.js"]
+    depends_on:
+      api_tests:
+        condition: service_completed_successfully
+      redis_test:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres_test
+      PGUSER: chiffra_test
+      PGPASSWORD: local-sql-tests-only
+      PGDATABASE: chiffra_test
+      REDIS_HOST: redis_test
+      SOURCE_DIR: /data/sources
+      WORKER_CONCURRENCY: 2
+    volumes:
+      - source_test_data:/data/sources
+    networks:
+      - test_internal
+
+  web_e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      api_e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/api/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks:
+      - test_internal
+
+  e2e_tests:
+    image: chiffra-server:test
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      target: build
+    depends_on:
+      web_e2e:
+        condition: service_healthy
+      worker_e2e:
+        condition: service_started
+    environment:
+      BASE_URL: http://web_e2e
+      PGHOST: postgres_test
+      PGUSER: chiffra_test
+      PGPASSWORD: local-sql-tests-only
+      PGDATABASE: chiffra_test
+    command: ["node", "--test", "tests/e2e.test.mjs"]
+    networks:
+      - test_internal
+
 networks:
   test_internal:
     internal: true
+
+volumes:
+  source_test_data:

@@ -5,11 +5,12 @@ const run = promisify(execFile);
 const MAX_PAGES = 30;
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 
-export type PdfOutcome =
-  | { status: "SUCCEEDED"; text: string; segments: { page: number; text: string }[] }
-  | { status: "NON_TRAITE" | "FAILED"; reason: string };
+export type TextSegment = { page: number; text: string };
+export type PdfNativeOutcome =
+  | { status: "READY"; pageCount: number; segments: TextSegment[]; missingPages: number[] }
+  | { status: "NON_TRAITE"; reason: string };
 
-export async function extractPdfText(path: string): Promise<PdfOutcome> {
+export async function extractPdfNativeText(path: string): Promise<PdfNativeOutcome> {
   const { stdout: info } = await run("pdfinfo", [path], {
     encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024,
   });
@@ -22,13 +23,13 @@ export async function extractPdfText(path: string): Promise<PdfOutcome> {
     return { status: "NON_TRAITE", reason: "PDF de plus de 30 pages non traité à cette étape." };
   }
 
-  const segments: { page: number; text: string }[] = [];
+  const segments: TextSegment[] = [];
   const missingPages: number[] = [];
   let totalBytes = 0;
   for (let page = 1; page <= pageCount; page += 1) {
     const { stdout } = await run(
       "pdftotext", ["-layout", "-enc", "UTF-8", "-f", String(page), "-l", String(page), path, "-"],
-      { encoding: "utf8", timeout: 30_000, maxBuffer: MAX_TEXT_BYTES },
+      { encoding: "utf8", timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
     );
     const text = stdout.trim();
     if (!text) {
@@ -42,11 +43,5 @@ export async function extractPdfText(path: string): Promise<PdfOutcome> {
     segments.push({ page, text });
   }
 
-  if (missingPages.length > 0) {
-    return {
-      status: "NON_TRAITE",
-      reason: `Aucun texte sur les pages ${missingPages.join(", ")} ; OCR requis.`,
-    };
-  }
-  return { status: "SUCCEEDED", text: segments.map((segment) => segment.text).join("\n\n"), segments };
+  return { status: "READY", pageCount, segments, missingPages };
 }

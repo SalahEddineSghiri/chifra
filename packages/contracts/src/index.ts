@@ -3,10 +3,13 @@ import { z } from "zod";
 // Montants en MAD et taux en pourcentage : jamais de Number pour les calculs.
 export const decimalStringSchema = z.string().regex(/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/);
 const id = z.string().min(1);
+const extractionMethodSchema = z.enum(["PDF_TEXT", "OCR", "TABULAR"]);
 const sourceSchema = z.strictObject({
   sourceId: id,
   page: z.number().int().positive().nullable(),
   row: z.number().int().positive().nullable(),
+  extractionMethod: extractionMethodSchema,
+  extractionVersion: id,
 });
 
 function observed(valueSchema: z.ZodType<string>) {
@@ -32,7 +35,6 @@ export const observationsSchema = z.strictObject({
   vatAmount: observed(decimalStringSchema),
   amountTtc: observed(decimalStringSchema),
   printedVatRate: observed(decimalStringSchema),
-  extractionMethod: z.enum(["PDF_TEXT", "OCR", "TABULAR"]),
 });
 
 export const referencesSchema = z.strictObject({
@@ -57,7 +59,7 @@ const reconciliationSchema = z.strictObject({
 });
 
 export const stateSchema = z.strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   control: z.strictObject({
     batchId: id,
     runId: id,
@@ -88,7 +90,7 @@ const explainerSchema = z.strictObject({ explanation: z.string().min(1) });
 
 export function initialState(batchId: string, runId: string, documentId: string): AgentState {
   return stateSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     control: { batchId, runId, documentId, stage: "RECEIVED", attempts: 0, stopReason: null },
     observations: null,
     references: null,
