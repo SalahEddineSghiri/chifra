@@ -11,7 +11,10 @@ import { createSourceQueue } from "../dist/server/queue.js";
 import { startSourceWorker } from "../dist/server/worker.js";
 
 function makePdf(text) {
-  const content = text ? `BT /F1 14 Tf 72 720 Td (${text}) Tj ET` : "";
+  const lines = Array.isArray(text) ? text : text ? [text] : [];
+  const content = lines.length
+    ? `BT /F1 14 Tf 72 720 Td ${lines.map((line, index) => `${index ? "0 -18 Td " : ""}(${line}) Tj`).join(" ")} ET`
+    : "";
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -95,6 +98,32 @@ test("upload PDF, extraction réelle et document sans texte explicite", async ()
     assert.equal(segments.rows[0]?.page_number, 1);
     assert.match(segments.rows[0]?.text_content, /CHIFFRA_TEXTE_TEST/);
     assert.equal(segments.rows[0]?.confidence_percent, null);
+    assert.equal(source.observationStatus, "PARTIAL");
+    assert.equal(source.observations.amountHt.value, null);
+
+    const invoice = makePdf([
+      "FOURNISSEUR EXEMPLE", "ICE 005678901000091", "FACTURE N FA-2026-0001",
+      "Date 2026-01-01", "ICE client 001987654000073", "Total HT 7800.00",
+      "TVA 20% 1560.00", "Net a payer TTC 9360.00",
+    ]);
+    const invoiceUpload = await app.inject({
+      method: "POST", url: `/api/batches/${batchId}/sources`, ...multipartPdf(invoice),
+    });
+    assert.equal(invoiceUpload.statusCode, 202, invoiceUpload.body);
+    const invoiceId = invoiceUpload.json().source.id;
+    await waitForStatus(pool, invoiceId, "DONE");
+    const invoiceList = await app.inject({ method: "GET", url: `/api/batches/${batchId}/sources` });
+    const invoiceSource = invoiceList.json().sources.find((item) => item.id === invoiceId);
+    assert.equal(invoiceSource.observationStatus, "COMPLETE");
+    assert.deepEqual(invoiceSource.observations.amountTtc, {
+      value: "9360.00", page: 1, missingReason: null,
+    });
+    const persisted = await pool.query(
+      "SELECT parser_version, fields->'amountHt'->>'value' AS ht FROM source_observations WHERE source_id = $1",
+      [invoiceId],
+    );
+    assert.equal(persisted.rows[0]?.parser_version, "labels-v1");
+    assert.equal(persisted.rows[0]?.ht, "7800.00");
 
     const duplicate = await app.inject({
       method: "POST", url: `/api/batches/${batchId}/sources`, ...multipartPdf(pdf),
@@ -111,6 +140,7 @@ test("upload PDF, extraction réelle et document sans texte explicite", async ()
     const blankSource = all.json().sources.find((item) => item.id === blankId);
     assert.match(blankSource.failureReason, /OCR requis/);
     assert.equal(blankSource.textPreview, null);
+    assert.equal(blankSource.observations, null);
   } finally {
     await closeWorker();
     await app.close();

@@ -7,6 +7,7 @@ RUN npm ci
 COPY tsconfig.server.json ./
 COPY apps/server/src ./apps/server/src
 COPY tests/batches.test.mjs ./tests/batches.test.mjs
+COPY tests/observations.test.mjs ./tests/observations.test.mjs
 COPY tests/uploads.test.mjs ./tests/uploads.test.mjs
 RUN npm run typecheck:server && npm run build:server
 

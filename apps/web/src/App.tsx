@@ -9,6 +9,29 @@ const batchSchema = z.object({
 });
 const listSchema = z.object({ batches: z.array(batchSchema) });
 const createSchema = z.object({ batch: batchSchema });
+const observedFieldSchema = z.object({
+  value: z.string().nullable(),
+  page: z.number().int().positive().nullable(),
+  missingReason: z.string().nullable(),
+});
+const observationFieldsSchema = z.object({
+  supplierName: observedFieldSchema,
+  supplierIce: observedFieldSchema,
+  customerIce: observedFieldSchema,
+  invoiceNumber: observedFieldSchema,
+  issuedOn: observedFieldSchema,
+  amountHt: observedFieldSchema,
+  vatAmount: observedFieldSchema,
+  amountTtc: observedFieldSchema,
+  printedVatRate: observedFieldSchema,
+});
+const observationLabels = [
+  ["supplierName", "Fournisseur"], ["supplierIce", "ICE fournisseur"],
+  ["customerIce", "ICE client"], ["invoiceNumber", "Numéro de pièce"],
+  ["issuedOn", "Date"], ["amountHt", "Montant HT lu"],
+  ["vatAmount", "TVA lue"], ["amountTtc", "Montant TTC lu"],
+  ["printedVatRate", "Taux TVA imprimé"],
+] as const;
 const sourceSchema = z.object({
   id: z.string().uuid(),
   filename: z.string(),
@@ -18,6 +41,8 @@ const sourceSchema = z.object({
   extractionMethod: z.string().nullable(),
   failureReason: z.string().nullable(),
   textPreview: z.string().nullable(),
+  observationStatus: z.enum(["COMPLETE", "PARTIAL"]).nullable(),
+  observations: observationFieldsSchema.nullable(),
 });
 const sourcesSchema = z.object({ sources: z.array(sourceSchema) });
 const uploadSchema = z.object({ source: z.object({ id: z.string().uuid(), status: z.string() }) });
@@ -101,6 +126,24 @@ function BatchDetails({ batch }: { batch: Batch }) {
               <strong>{source.filename}</strong>
               <span className="status">{source.status}</span>
               {source.failureReason && <p>{source.failureReason}</p>}
+              {source.observations && (
+                <div className="observations">
+                  <p>Champs lus automatiquement, à vérifier sur la pièce source ({source.observationStatus}).</p>
+                  <dl>
+                    {observationLabels.map(([name, label]) => {
+                      const observed = source.observations?.[name];
+                      return (
+                        <div key={name}>
+                          <dt>{label}</dt>
+                          <dd>{observed?.value ?? `Non lu : ${observed?.missingReason ?? "motif indisponible"}`}
+                            {observed?.page && <small>Page {observed.page}</small>}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </div>
+              )}
               {source.textPreview && <pre>{source.textPreview}</pre>}
             </li>
           ))}

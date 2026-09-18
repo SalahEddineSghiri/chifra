@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Queue, Worker } from "bullmq";
 import type { Pool } from "pg";
 import { z } from "zod";
+import { extractInvoiceObservations } from "./observations.js";
 import { extractPdfText, type PdfOutcome } from "./pdf.js";
 import { redisConnection, SOURCE_QUEUE, type SourceJob } from "./queue.js";
 
@@ -30,6 +31,7 @@ async function saveOutcome(pool: Pool, sourceId: string, outcome: PdfOutcome) {
     const storedId = result.rows[0]?.id;
     if (!storedId) throw new Error("Extraction non enregistrée");
 
+    await client.query("DELETE FROM source_observations WHERE source_id = $1", [sourceId]);
     await client.query("DELETE FROM source_extraction_segments WHERE extraction_id = $1", [storedId]);
     if (outcome.status === "SUCCEEDED") {
       for (const [index, segment] of outcome.segments.entries()) {
@@ -40,6 +42,13 @@ async function saveOutcome(pool: Pool, sourceId: string, outcome: PdfOutcome) {
           [randomUUID(), storedId, index + 1, segment.page, segment.text],
         );
       }
+      const observations = extractInvoiceObservations(outcome.segments);
+      await client.query(
+        `INSERT INTO source_observations (
+           source_id, extraction_id, parser_version, status, fields
+         ) VALUES ($1, $2, 'labels-v1', $3, $4::jsonb)`,
+        [sourceId, storedId, observations.status, JSON.stringify(observations.fields)],
+      );
     }
 
     const sourceStatus = outcome.status === "SUCCEEDED" ? "DONE" : outcome.status;
@@ -98,6 +107,18 @@ export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sou
   await pool.query(
     `UPDATE source_files SET status = 'RECEIVED'
       WHERE status = 'PROCESSING' AND media_type = 'application/pdf'`,
+  );
+  await pool.query(
+    `UPDATE source_files sf SET status = 'RECEIVED'
+      WHERE sf.status = 'DONE' AND sf.media_type = 'application/pdf'
+        AND EXISTS (
+          SELECT 1 FROM source_extractions se
+          WHERE se.source_id = sf.id AND se.method = 'PDF_TEXT' AND se.status = 'SUCCEEDED'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM source_observations so
+          WHERE so.source_id = sf.id AND so.parser_version = 'labels-v1'
+        )`,
   );
   const worker = new Worker<SourceJob>(
     SOURCE_QUEUE,

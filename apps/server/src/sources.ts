@@ -23,6 +23,8 @@ type SourceRow = {
   extraction_method: string | null;
   failure_reason: string | null;
   text_preview: string | null;
+  observation_status: string | null;
+  observations: unknown | null;
 };
 
 export function registerSourceRoutes(
@@ -43,7 +45,8 @@ export function registerSourceRoutes(
     const result = await pool.query<SourceRow>(
       `SELECT sf.id, sf.original_filename, sf.status, sf.created_at,
               se.status AS extraction_status, se.method AS extraction_method,
-              se.failure_reason, left(se.text_content, 2000) AS text_preview
+              se.failure_reason, left(se.text_content, 2000) AS text_preview,
+              so.status AS observation_status, so.fields AS observations
          FROM source_files sf
          LEFT JOIN LATERAL (
            SELECT status, method, failure_reason, text_content
@@ -51,6 +54,7 @@ export function registerSourceRoutes(
             WHERE source_id = sf.id
             ORDER BY created_at DESC, id DESC LIMIT 1
          ) se ON true
+         LEFT JOIN source_observations so ON so.source_id = sf.id
         WHERE sf.batch_id = $1
         ORDER BY sf.created_at DESC, sf.id DESC`,
       [params.data.batchId],
@@ -66,6 +70,8 @@ export function registerSourceRoutes(
         extractionMethod: row.extraction_method,
         failureReason: row.failure_reason,
         textPreview: row.text_preview,
+        observationStatus: row.observation_status,
+        observations: row.observations,
       })),
     };
   });

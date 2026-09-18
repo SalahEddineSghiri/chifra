@@ -58,6 +58,20 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .source-list pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; background: #f3f6f4; padding: 12px; border-radius: 6px; }
 
+.observations { margin-top: 16px; }
+
+.observations p { font-weight: 600; }
+
+.observations dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+
+.observations dl div { padding: 10px; background: #f3f6f4; border-radius: 6px; }
+
+.observations dt { color: #5c6d69; font-size: .85rem; }
+
+.observations dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+.observations small { display: block; color: #5c6d69; }
+
 @media (max-width: 600px) {
   .form-row, .batch-list li { flex-direction: column; }
   .meta { text-align: left; }
