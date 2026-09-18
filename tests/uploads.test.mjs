@@ -155,6 +155,12 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(jpg.observations.amountTtc.extractionVersion, "tesseract-5-fra-ara-eng-v2");
     assert.deepEqual(jpg.observations.amountTtc.normalization, []);
     assert.equal(jpg.observations.supplierIce.value, "005678901000091");
+    assert.equal(jpg.observations.issuedOn.value, "2026-01-01");
+    if (jpg.observations.issuedOn.rawValue !== "2026-01-01") {
+      assert.ok(jpg.observations.issuedOn.normalization.includes(
+        "DATE_COMPONENT_ZERO_PADDED",
+      ));
+    }
     const confidence = await pool.query(
       `SELECT confidence_percent FROM source_extraction_segments
         WHERE extraction_id = (SELECT id FROM source_extractions

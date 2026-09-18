@@ -14,7 +14,8 @@ export type NormalizationCode =
   | "ARABIC_THOUSANDS_REMOVED"
   | "GROUPING_SEPARATOR_REMOVED"
   | "DECIMAL_COMMA_TO_DOT"
-  | "DATE_SEPARATOR_TO_HYPHEN";
+  | "DATE_SEPARATOR_TO_HYPHEN"
+  | "DATE_COMPONENT_ZERO_PADDED";
 export type ObservationCandidate = {
   rawValue: string;
   value: string;
@@ -52,7 +53,7 @@ const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
 const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
 const digitSequence = "[0-9٠-٩۰-۹]";
 const icePattern = new RegExp(`(?<!${digitSequence})(${digitSequence}{15})(?!${digitSequence})`, "u");
-const datePattern = new RegExp(`(${digitSequence}{4}[-/.]${digitSequence}{2}[-/.]${digitSequence}{2})`, "u");
+const datePattern = new RegExp(`(${digitSequence}{4}[-/.]${digitSequence}{1,2}[-/.]${digitSequence}{1,2})`, "u");
 const amountPattern = new RegExp(
   `-?${digitSequence}+(?:[ \\u00a0\\u202f٬,.٫]${digitSequence}+)+`, "gu",
 );
@@ -200,7 +201,16 @@ function normalizeDate(rawValue: string): Normalized | null {
     value = value.replace(/[/.]/g, "-");
     normalization.push("DATE_SEPARATOR_TO_HYPHEN");
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parts = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(value);
+  if (!parts) return null;
+  const [, year, month, day] = parts;
+  if (year === undefined || month === undefined || day === undefined) return null;
+  const paddedMonth = month.padStart(2, "0");
+  const paddedDay = day.padStart(2, "0");
+  if (paddedMonth !== month || paddedDay !== day) {
+    normalization.push("DATE_COMPONENT_ZERO_PADDED");
+  }
+  value = `${year}-${paddedMonth}-${paddedDay}`;
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
   return { rawValue: raw, value, normalization: unique(normalization) };

@@ -12,7 +12,7 @@ test("les montants et la date lus conservent valeur brute, normalisation et prov
     "ICE 005678901000091",
     "FACTURE N FA-2026-0001",
     "Date",
-    "2026-01-01",
+    "2026-01-1",
     "ICE client",
     "001987654000073",
     "Total HT",
@@ -34,6 +34,8 @@ test("les montants et la date lus conservent valeur brute, normalisation et prov
   assert.equal(result.fields.amountTtc.value, "9360.00");
   assert.equal(result.fields.printedVatRate.value, "20");
   assert.equal(result.fields.issuedOn.value, "2026-01-01");
+  assert.equal(result.fields.issuedOn.rawValue, "2026-01-1");
+  assert.deepEqual(result.fields.issuedOn.normalization, ["DATE_COMPONENT_ZERO_PADDED"]);
 });
 
 test("les chiffres arabo-indiens sont normalisés explicitement sans perdre la valeur brute", () => {

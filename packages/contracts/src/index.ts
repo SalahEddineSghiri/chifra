@@ -20,6 +20,7 @@ const normalizationSchema = z.enum([
   "GROUPING_SEPARATOR_REMOVED",
   "DECIMAL_COMMA_TO_DOT",
   "DATE_SEPARATOR_TO_HYPHEN",
+  "DATE_COMPONENT_ZERO_PADDED",
 ]);
 
 function observed(valueSchema: z.ZodType<string>) {
