@@ -8,3 +8,8 @@ docs/validation.md
 node_modules/
 dist/
 coverage/
+# Consignes et mémoire privées
+/AGENTS.md
+/.codex/
+/chiffra-handoff/
+/reprise-codex/
