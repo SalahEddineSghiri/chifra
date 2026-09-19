@@ -9,18 +9,22 @@
     "test": "node --test tests/contracts.test.mjs",
     "typecheck:server": "tsc --noEmit -p tsconfig.server.json",
     "build:server": "tsc -p tsconfig.server.json",
-    "test:server": "node --test --test-concurrency=1 tests/audit-engine.test.mjs tests/audit.test.mjs tests/batches.test.mjs tests/bank-csv.test.mjs tests/bank-statements.test.mjs tests/batch-ingestion.test.mjs tests/consolidation.test.mjs tests/observations.test.mjs tests/reconciliation-engine.test.mjs tests/reconciliation.test.mjs tests/reference-data.test.mjs tests/uploads.test.mjs tests/xlsx.test.mjs tests/xlsx-upload.test.mjs",
+    "test:server": "node --test --test-concurrency=1 tests/agent-runtime.test.mjs tests/agent-store.test.mjs tests/audit-engine.test.mjs tests/audit.test.mjs tests/batches.test.mjs tests/bank-csv.test.mjs tests/bank-statements.test.mjs tests/batch-ingestion.test.mjs tests/consolidation.test.mjs tests/observations.test.mjs tests/reconciliation-engine.test.mjs tests/reconciliation.test.mjs tests/reference-data.test.mjs tests/uploads.test.mjs tests/xlsx.test.mjs tests/xlsx-upload.test.mjs",
+    "test:llm": "node dist/server/llm-smoke.js",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "build:web": "vite build --config apps/web/vite.config.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.1",
+    "@langchain/core": "^1.2.11",
+    "@langchain/langgraph": "^1.4.16",
     "bullmq": "^5.0.0",
     "decimal.js": "^10.6.0",
     "fastify": "^5.12.5",
+    "openai": "^7.19.0",
     "pg": "^8.0.0",
     "read-excel-file": "^9.3.4",
-    "zod": "4.1.12"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

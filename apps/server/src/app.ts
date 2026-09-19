@@ -11,6 +11,7 @@ import { registerReconciliationRoutes } from "./reconciliation.js";
 import type { QueueJob } from "./queue.js";
 import { registerSourceRoutes } from "./sources.js";
 import { loadReferenceData } from "./reference-data.js";
+import { registerAgentRoutes } from "./agent-analysis.js";
 
 const createBatchSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
@@ -69,5 +70,6 @@ export function buildApp(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) 
   registerDocumentRoutes(app, pool);
   registerReconciliationRoutes(app, pool, queue);
   registerAuditRoutes(app, pool, queue, reference);
+  registerAgentRoutes(app, pool, queue, reference.version);
   return app;
 }

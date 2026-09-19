@@ -8,7 +8,7 @@ EX-01 et EX-02 restent à valider sur le corpus complet : la sélection multiple
 
 ## Démarrage local
 
-Copier `.env.example` vers `.env`, puis renseigner `POSTGRES_PASSWORD`. Les clés Azure peuvent rester vides pour les fonctionnalités disponibles. Depuis la racine du clone :
+Copier `.env.example` vers `.env`, puis renseigner `POSTGRES_PASSWORD`. Les clés Azure peuvent rester vides pour l'ingestion, le rapprochement et l'audit déterministes. Elles sont requises uniquement au lancement de l'analyse agentique. Depuis la racine du clone :
 
 ```sh
 docker compose up -d --build
@@ -26,7 +26,7 @@ Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé 
 
 Le Compose définit PostgreSQL 16, Redis 7, l’API, le worker et l’interface sur un réseau propre à Chiffra. L’API et le worker utilisent la même image avec des processus distincts. Seule l’interface est publiée sur `127.0.0.1` ; PostgreSQL et Redis ne publient aucun port. Les volumes conservent la base, Redis et les sources entre redémarrages.
 
-Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 11. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page ou ligne, observations, pièces métier, relations entre représentations, preuves de calcul, allocations bancaires et résultats d'audit.
+Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 12. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page ou ligne, observations, pièces métier, relations entre représentations, preuves de calcul, allocations bancaires, résultats d'audit et traces agentiques.
 
 La confiance reste `NULL`, car le parcours actuel ne collecte pas une mesure suffisamment fiable pour la publier. Le motif d’un état terminal est conservé. Au premier démarrage de cette version, le worker reprend les traitements interrompus et recalcule les observations créées par une ancienne version du parseur.
 
@@ -92,6 +92,20 @@ docker compose exec -T api node dist/server/replay-audit.js <preuve>
 
 Le résultat contient `"verified":true` lorsque les entrées, les référentiels disponibles et la sortie recalculée correspondent à la preuve persistée.
 
+## Orchestration agentique
+
+Après le rapprochement et l'audit, le bouton « Analyser les preuves » lance un travail BullMQ dans le worker. LangGraph exécute successivement les rôles Ingestor, Orchestrator, Reconciler, Auditor et Explainer. Le Reconciler et l'Auditor lisent les preuves PostgreSQL existantes sans recalculer ni modifier les allocations. GPT-5.5 intervient uniquement lorsque les faits comportent une ambiguïté, une anomalie ou une source illisible ; GPT-4.1 produit une explication structurée reliée à un identifiant de preuve. Les sorties sont validées, mises en cache et tracées avec le modèle, le motif de sélection, la durée et l'usage de jetons. Deux tentatives au maximum sont autorisées, sans bascule automatique d'un accès Azure vers l'autre.
+
+Les clés restent uniquement dans l'environnement du worker. Une configuration absente produit un échec explicite de cette tâche sans empêcher le démarrage de l'application ni les moteurs déterministes. Les documents illisibles et les ambiguïtés apparaissent comme motifs de revue humaine. L'enregistrement d'une décision humaine reste une étape ultérieure.
+
+Pour vérifier une fois chaque accès Azure avec une petite sortie structurée, après avoir configuré `.env` :
+
+```sh
+docker compose exec -T worker npm run test:llm
+```
+
+La commande affiche uniquement les modèles, la validation, l'utilisation éventuelle du cache et la durée. Elle n'affiche ni clé ni contenu comptable.
+
 ## Données et référentiels fournis
 
 Les documents privés du handoff ne sont pas nécessaires au démarrage de la version actuelle et ne sont pas inclus dans le dépôt. Leur usage actuel et futur est explicite :
@@ -129,4 +143,4 @@ La dernière commande exécute aussi les tests SQL, du contrat et du serveur don
 docker compose -f compose.test.yaml down -v
 ```
 
-Le rapprochement EX-03 et les contrôles comptables et fiscaux EX-04 sont disponibles. L'application des avoirs, l'orchestration LangGraph, l'Explainer et la décision de revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.
+Le rapprochement EX-03, les contrôles comptables et fiscaux EX-04 et la première orchestration LangGraph sont disponibles. L'application des avoirs et la décision de revue humaine seront ajoutées dans les étapes fonctionnelles suivantes.

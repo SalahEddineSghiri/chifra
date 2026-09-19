@@ -18,6 +18,8 @@ COPY tsconfig.server.json ./
 COPY apps/server/src ./apps/server/src
 COPY reference-data ./reference-data
 COPY tests/batches.test.mjs ./tests/batches.test.mjs
+COPY tests/agent-runtime.test.mjs ./tests/agent-runtime.test.mjs
+COPY tests/agent-store.test.mjs ./tests/agent-store.test.mjs
 COPY tests/bank-statements.test.mjs ./tests/bank-statements.test.mjs
 COPY tests/bank-csv.test.mjs ./tests/bank-csv.test.mjs
 COPY tests/observations.test.mjs ./tests/observations.test.mjs

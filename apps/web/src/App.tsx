@@ -4,6 +4,7 @@ import { BankStatements } from "./BankStatements";
 import { Documents } from "./Documents";
 import { Reconciliation } from "./Reconciliation";
 import { Audit } from "./Audit";
+import { AgentAnalysis } from "./AgentAnalysis";
 
 const batchSchema = z.object({
   id: z.string().uuid(),
@@ -462,6 +463,11 @@ export function App() {
           />
           <Audit
             key={`audit-${selectedBatch.id}`}
+            batchId={selectedBatch.id}
+            batchStatus={selectedBatch.status}
+          />
+          <AgentAnalysis
+            key={`agent-${selectedBatch.id}`}
             batchId={selectedBatch.id}
             batchStatus={selectedBatch.status}
           />

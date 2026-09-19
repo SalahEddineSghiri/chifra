@@ -11,12 +11,15 @@ import { extractXlsx, XLSX_PARSER_VERSION } from "./xlsx.js";
 import { OCR_VERSION } from "./ocr.js";
 import { OBSERVATION_PARSER_VERSION } from "./observations.js";
 import {
-  enqueueAudit, enqueueReconciliation, enqueueSource, redisConnection,
-  SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE, type AuditJob, type QueueJob, type ReconciliationJob,
+  AGENT_JOB_ATTEMPTS, enqueueAgent, enqueueAudit, enqueueReconciliation, enqueueSource,
+  redisConnection, SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE, type AgentJob, type AuditJob,
+  type QueueJob, type ReconciliationJob,
 } from "./queue.js";
 import { runReconciliation } from "./reconciliation-store.js";
 import { runAudit } from "./audit-store.js";
 import { loadReferenceData, type ReferenceData } from "./reference-data.js";
+import { executeAgentRun } from "./agent-store.js";
+import { createAzureAgentLlm, LlmConfigurationError, LlmResponseError, type AgentLlm } from "./llm.js";
 
 const jobSchema = z.strictObject({ sourceId: z.uuid() });
 const reconciliationJobSchema = z.strictObject({
@@ -24,6 +27,7 @@ const reconciliationJobSchema = z.strictObject({
   batchId: z.uuid(),
 });
 const auditJobSchema = z.strictObject({ auditJobId: z.uuid(), batchId: z.uuid() });
+const agentJobSchema = z.strictObject({ agentRunId: z.uuid(), batchId: z.uuid() });
 const DOCUMENT_MEDIA = ["application/pdf", "image/jpeg"] as const;
 const XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const SUPPORTED_MEDIA = [...DOCUMENT_MEDIA, XLSX_MEDIA] as const;
@@ -168,12 +172,56 @@ async function runAuditJob(pool: Pool, job: Job<QueueJob>, reference: ReferenceD
   }
 }
 
+function publicAgentFailure(error: unknown): string {
+  if (error instanceof LlmConfigurationError) return error.message;
+  if (error instanceof LlmResponseError) return error.message;
+  return "Erreur technique de l'analyse agentique après deux tentatives.";
+}
+
+async function runAgentJob(
+  pool: Pool,
+  job: Job<QueueJob>,
+  reference: ReferenceData,
+  injectedLlm?: AgentLlm,
+) {
+  const data: AgentJob = agentJobSchema.parse(job.data);
+  const claimed = await pool.query(
+    `UPDATE agent_runs
+        SET status = 'PROCESSING', failure_reason = NULL,
+            started_at = COALESCE(started_at, now()), completed_at = NULL
+      WHERE id = $1 AND batch_id = $2 AND status IN ('PENDING', 'PROCESSING')
+      RETURNING id`,
+    [data.agentRunId, data.batchId],
+  );
+  if (claimed.rowCount === 0) return;
+  try {
+    const llm = injectedLlm ?? createAzureAgentLlm(pool);
+    await executeAgentRun(pool, data.agentRunId, data.batchId, reference.version, llm);
+  } catch (error) {
+    const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? AGENT_JOB_ATTEMPTS);
+    await pool.query(
+      `UPDATE agent_runs
+          SET status = $2, failure_reason = $3,
+              completed_at = CASE WHEN $2 = 'FAILED' THEN now() ELSE NULL END
+        WHERE id = $1`,
+      [data.agentRunId, finalAttempt ? "FAILED" : "PENDING",
+        finalAttempt ? publicAgentFailure(error) : null],
+    );
+    throw error;
+  }
+}
+
 async function runJob(
   pool: Pool,
   sourceDir: string,
   job: Job<QueueJob>,
   reference: ReferenceData,
+  agentLlm?: AgentLlm,
 ) {
+  if (job.name === "agent-analysis") {
+    await runAgentJob(pool, job, reference, agentLlm);
+    return;
+  }
   if (job.name === "audit") {
     await runAuditJob(pool, job, reference);
     return;
@@ -205,9 +253,19 @@ async function enqueuePending(pool: Pool, queue: Queue<QueueJob>) {
       WHERE status = 'PENDING' ORDER BY created_at LIMIT 100`,
   );
   for (const row of auditJobs.rows) await enqueueAudit(queue, row.id, row.batch_id);
+  const agentRuns = await pool.query<{ id: string; batch_id: string }>(
+    `SELECT id, batch_id FROM agent_runs
+      WHERE status = 'PENDING' ORDER BY created_at LIMIT 100`,
+  );
+  for (const row of agentRuns.rows) await enqueueAgent(queue, row.id, row.batch_id);
 }
 
-export async function startSourceWorker(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) {
+export async function startSourceWorker(
+  pool: Pool,
+  queue: Queue<QueueJob>,
+  sourceDir: string,
+  options: { agentLlm?: AgentLlm } = {},
+) {
   const concurrency = Number(process.env.WORKER_CONCURRENCY ?? "2");
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4) {
     throw new Error("WORKER_CONCURRENCY doit être entre 1 et 4");
@@ -281,9 +339,14 @@ export async function startSourceWorker(pool: Pool, queue: Queue<QueueJob>, sour
         SET status = 'PENDING', failure_reason = NULL, completed_at = NULL
       WHERE status = 'PROCESSING'`,
   );
+  await pool.query(
+    `UPDATE agent_runs
+        SET status = 'PENDING', failure_reason = NULL, completed_at = NULL
+      WHERE status = 'PROCESSING'`,
+  );
   const worker = new Worker<QueueJob>(
     SOURCE_QUEUE,
-    async (job) => runJob(pool, sourceDir, job, reference),
+    async (job) => runJob(pool, sourceDir, job, reference, options.agentLlm),
     { connection: redisConnection(), concurrency },
   );
   worker.on("failed", (job, error) => {

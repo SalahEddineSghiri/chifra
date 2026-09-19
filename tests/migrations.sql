@@ -8,8 +8,8 @@ DECLARE
   empty_success_rejected boolean := false;
   missing_reason_rejected boolean := false;
 BEGIN
-  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 11) <> 11 THEN
-    RAISE EXCEPTION 'Migrations 1 à 11 attendues';
+  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 12) <> 12 THEN
+    RAISE EXCEPTION 'Migrations 1 à 12 attendues';
   END IF;
 
   IF to_regclass('public.reconciliation_runs') IS NULL
@@ -23,6 +23,13 @@ BEGIN
      OR to_regclass('public.audit_runs') IS NULL
      OR to_regclass('public.document_audit_results') IS NULL THEN
     RAISE EXCEPTION 'Tables d audit absentes';
+  END IF;
+
+  IF to_regclass('public.agent_runs') IS NULL
+     OR to_regclass('public.agent_events') IS NULL
+     OR to_regclass('public.agent_checkpoints') IS NULL
+     OR to_regclass('public.llm_response_cache') IS NULL THEN
+    RAISE EXCEPTION 'Tables agentiques absentes';
   END IF;
 
   INSERT INTO batches (id) VALUES (test_batch);

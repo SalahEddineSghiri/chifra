@@ -2,10 +2,12 @@ import { Queue } from "bullmq";
 
 export const SOURCE_QUEUE = "source-extraction";
 export const SOURCE_JOB_ATTEMPTS = 3;
+export const AGENT_JOB_ATTEMPTS = 2;
 export type SourceJob = { sourceId: string };
 export type ReconciliationJob = { reconciliationJobId: string; batchId: string };
 export type AuditJob = { auditJobId: string; batchId: string };
-export type QueueJob = SourceJob | ReconciliationJob | AuditJob;
+export type AgentJob = { agentRunId: string; batchId: string };
+export type QueueJob = SourceJob | ReconciliationJob | AuditJob | AgentJob;
 
 export function redisConnection() {
   return { host: process.env.REDIS_HOST ?? "redis", port: 6379 };
@@ -43,6 +45,16 @@ export async function enqueueAudit(queue: Queue<QueueJob>, auditJobId: string, b
   await queue.add("audit", { auditJobId, batchId }, {
     jobId: `audit-${auditJobId}`,
     attempts: SOURCE_JOB_ATTEMPTS,
+    backoff: { type: "exponential", delay: 2_000 },
+    removeOnComplete: true,
+    removeOnFail: 100,
+  });
+}
+
+export async function enqueueAgent(queue: Queue<QueueJob>, agentRunId: string, batchId: string) {
+  await queue.add("agent-analysis", { agentRunId, batchId }, {
+    jobId: `agent-${agentRunId}`,
+    attempts: AGENT_JOB_ATTEMPTS,
     backoff: { type: "exponential", delay: 2_000 },
     removeOnComplete: true,
     removeOnFail: 100,

@@ -99,4 +99,13 @@ SELECT CASE WHEN EXISTS (SELECT 1 FROM schema_migrations WHERE version = 11)
 INSERT INTO schema_migrations (version) VALUES (11);
 \endif
 
+SELECT CASE WHEN EXISTS (SELECT 1 FROM schema_migrations WHERE version = 12)
+  THEN 'false' ELSE 'true' END AS apply_012
+\gset
+
+\if :apply_012
+\ir migrations/012_agent_runs.sql
+INSERT INTO schema_migrations (version) VALUES (12);
+\endif
+
 COMMIT;
