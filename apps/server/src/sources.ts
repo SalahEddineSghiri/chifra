@@ -4,7 +4,6 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import multipart from "@fastify/multipart";
 import type { Queue } from "bullmq";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
@@ -38,8 +37,6 @@ export function registerSourceRoutes(
   queue: Queue<SourceJob>,
   sourceDir: string,
 ) {
-  app.register(multipart, { limits: { files: 1, parts: 1, fileSize: MAX_FILE_BYTES } });
-
   app.get("/api/batches/:batchId/sources", async (request, reply) => {
     const params = sourceParamsSchema.safeParse(request.params);
     if (!params.success) return reply.code(400).send({ error: "Identifiant de lot invalide." });

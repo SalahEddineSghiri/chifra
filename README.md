@@ -1,10 +1,10 @@
 # Chiffra
 
-Chiffra vise à traiter des lots de factures et de relevés bancaires : extraction des données comptables, rapprochement des paiements, contrôles fiscaux, anomalies sourcées et revue humaine.
+Chiffra traite progressivement des lots de factures et de relevés bancaires : extraction des données comptables, import CSV bancaire, rapprochement des paiements, contrôles fiscaux, anomalies sourcées et revue humaine.
 
-Le projet est en construction. On peut créer un lot, déposer un PDF ou une image JPG, suivre son traitement par le worker et consulter le texte ainsi que les champs lus automatiquement. Le texte natif des PDF reste prioritaire ; Tesseract traite les pages scannées et les JPG sur CPU en français, arabe et anglais. Chaque champ conserve sa valeur brute, sa valeur normalisée, sa page, la méthode et la version d'extraction. Un champ absent reste vide avec un motif. Un champ ambigu reste vide, conserve tous ses candidats et exige explicitement une revue humaine. Ces observations ne sont pas encore des factures validées ni des calculs comptables.
+Le projet est en construction. On peut créer un lot, déposer un PDF ou une image JPG, suivre son traitement par le worker, consulter les champs lus automatiquement et importer un relevé bancaire CSV. Le texte natif des PDF reste prioritaire ; Tesseract traite les pages scannées et les JPG sur CPU en français, arabe et anglais. Chaque champ conserve sa valeur brute, sa valeur normalisée, sa page, la méthode et la version d'extraction. Un champ absent reste vide avec un motif. Un champ ambigu reste vide, conserve tous ses candidats et exige explicitement une revue humaine. Ces observations ne sont pas encore des factures validées ni des calculs comptables.
 
-EX-01 et EX-02 restent partielles : les PDF texte, les PDF scannés et les JPG sont couverts, avec une limite de 15 Mo et 30 pages par PDF. Les CSV, XLSX, relevés bancaires, lots fermés de 50 pièces et contrôles sur le corpus complet restent à réaliser. Les calculs futurs devront rester déterministes et sourcés conformément à EX-07. Une pièce sans texte exploitable après OCR reste explicitement `NON_TRAITE`, conformément à EX-08.
+EX-01 et EX-02 restent partielles : les PDF texte, les PDF scannés, les JPG et les relevés bancaires CSV au format fourni sont couverts. Les PDF/JPG sont limités à 15 Mo et 30 pages par PDF ; un relevé CSV est limité à 2 Mo et 5 000 lignes. Les XLSX, lots fermés de 50 pièces et contrôles sur le corpus complet restent à réaliser. Les calculs futurs devront rester déterministes et sourcés conformément à EX-07. Une pièce sans texte exploitable après OCR reste explicitement `NON_TRAITE`, conformément à EX-08.
 
 ## Démarrage local
 
@@ -44,6 +44,12 @@ Les chiffres occidentaux, arabo-indiens et persans ainsi que les séparateurs d�
 
 Le parseur `labels-v4` reconnaît les libellés comptables couverts en français, anglais et arabe. Il distingue le montant TVA du taux, y compris lorsque le texte OCR place le taux après le montant (`1560.00 20%`). Les marques Unicode de direction sont ignorées pour reconnaître les libellés ; le texte source reste conservé. Un libellé absent n'est pas reconstitué. L’OCR arabe reste partiel sur la fixture actuelle : le numéro et la TVA ne sont pas attribués lorsque leurs libellés sont mal reconnus ou absents. Les tests unitaires du parseur ne remplacent pas les tests Docker avec Tesseract réel.
 
+## Relevés bancaires CSV
+
+L’application accepte l’en-tête fourni `date,libelle,debit_mad,credit_mad,solde_mad`. L’import est atomique et un même contenu ne peut être ajouté deux fois dans un lot. Le contenu CSV original et son empreinte SHA-256 sont conservés. Les montants sont normalisés avec `decimal.js`, stockés en `numeric(18,2)` et échangés comme chaînes ; leurs valeurs CSV brutes restent conservées. Le solde de chaque ligne est contrôlé par rapport à la ligne précédente, sans inventer de solde initial.
+
+La classification actuelle est une préparation explicite au rapprochement : salaires, frais bancaires et règlements clients identifiables sont exclus des candidats d’achats ; les virements débit restants sont seulement marqués comme candidats. Une ligne `OTHER` reste visible. Aucune allocation facture-paiement ni décision de rapprochement n’est créée dans cette tranche.
+
 ## Données et référentiels fournis
 
 Les documents privés du handoff ne sont pas nécessaires au démarrage de la version actuelle et ne sont pas inclus dans le dépôt. Leur usage actuel et futur est explicite :
@@ -52,7 +58,7 @@ Les documents privés du handoff ne sont pas nécessaires au démarrage de la ve
 |---|---|---|---|---|
 | README du jeu de données | Oui, pour inventorier le corpus et ses scénarios | Non | Non | Guide de couverture et de recette du corpus |
 | Pièces comptables | Oui, avec chargements manuels de pièces de recette | Non | Seulement lorsqu'un utilisateur les dépose | Tests de régression d'ingestion sur le corpus |
-| Relevés bancaires | Structure consultée | Non | Non | Ingestion tabulaire puis rapprochement bancaire |
+| Relevés bancaires | Oui, format et scénarios contrôlés | Uniquement lorsqu'un utilisateur dépose un CSV | Oui, import versionné, montants exacts, classification et contrôle du solde | Rapprochement avec les factures dans la tranche EX-03 suivante |
 | `plan-comptable.csv` | Oui | Non | Non | Référentiel versionné pour les propositions comptables |
 | `referentiel-fournisseurs.csv` | Oui | Non | Non | Référentiel versionné pour les contrôles et propositions fournisseur |
 | `regles-fiscales.md` | Oui | Non | Non | Règles fiscales déterministes, identifiées et versionnées |
@@ -67,7 +73,7 @@ Cette commande exécute uniquement les migrations et tests SQL dans une base iso
 docker compose -f compose.test.yaml up --force-recreate --abort-on-container-exit --exit-code-from sql_tests sql_tests
 ```
 
-Pour exécuter les tests du contrat, de l’API, du worker et le parcours OCR complet à travers Nginx :
+Pour exécuter les tests du contrat, de l’API, du worker et les parcours OCR et bancaire à travers Nginx :
 
 ```sh
 docker compose -f compose.test.yaml down -v
@@ -75,10 +81,10 @@ docker compose -f compose.test.yaml build
 docker compose -f compose.test.yaml run --rm e2e_tests
 ```
 
-La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, des PDF scannés français et arabe, des JPG français, anglais, arabe, mixte, ambigu et illisible, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Les fixtures synthétiques anglaise et française passent par l’API et le worker. Les cas arabe et mixte vérifient explicitement leur résultat partiel actuel sans compléter les champs absents. Le test final charge un JPG français par le Nginx du service web et vérifie l’API, le worker, les valeurs brutes et normalisées et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
+La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, des PDF scannés français et arabe, des JPG français, anglais, arabe, mixte, ambigu et illisible, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Les fixtures synthétiques anglaise et française passent par l’API et le worker. Les cas arabe et mixte vérifient explicitement leur résultat partiel actuel sans compléter les champs absents. Le test final charge un JPG français et un relevé CSV par le Nginx du service web, puis vérifie l’API, le worker, les valeurs brutes et normalisées, la classification bancaire et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
 
 ```sh
 docker compose -f compose.test.yaml down -v
 ```
 
-Les parcours CSV/XLSX, le rapprochement bancaire, les contrôles comptables et fiscaux, l’agent, l’Explainer et la revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.
+L’import des relevés CSV prépare EX-03 sans créer encore d’allocation. Le rapprochement bancaire, les parcours XLSX, les contrôles comptables et fiscaux, l’agent, l’Explainer et la revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.

@@ -51,6 +51,7 @@ services:
         psql -X -v ON_ERROR_STOP=1 -f /tests/sources.sql
         psql -X -v ON_ERROR_STOP=1 -f /tests/migrations.sql
         psql -X -v ON_ERROR_STOP=1 -f /tests/segments.sql
+        psql -X -v ON_ERROR_STOP=1 -f /tests/bank-statements.sql
     networks:
       - test_internal
 

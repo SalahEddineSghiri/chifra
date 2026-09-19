@@ -14,7 +14,7 @@ async function json(response) {
   return response.json();
 }
 
-test("parcours JPG français via Nginx, API, worker et PostgreSQL", async () => {
+test("parcours OCR et relevé CSV via Nginx, API, worker et PostgreSQL", async () => {
   const home = await fetch(baseUrl);
   assert.equal(home.status, 200);
   assert.match(await home.text(), /<div id="root"><\/div>/);
@@ -57,6 +57,19 @@ test("parcours JPG français via Nginx, API, worker et PostgreSQL", async () => 
   assert.equal(source.observations.vatAmount.value, "1560.00");
   assert.equal(source.observations.amountTtc.value, "9360.00");
 
+  const csv = await readFile(new URL("./fixtures/bank-statement.csv", import.meta.url));
+  const bankForm = new FormData();
+  bankForm.append("file", new Blob([csv], { type: "text/csv" }), "releve-e2e.csv");
+  const imported = await json(await fetch(`${baseUrl}/api/batches/${batchId}/bank-statements`, {
+    method: "POST", body: bankForm,
+  }));
+  assert.equal(imported.statement.rowCount, 3);
+  const bankList = await json(await fetch(`${baseUrl}/api/batches/${batchId}/bank-statements`));
+  assert.equal(bankList.statements[0].lines[0].debitMad, "120.00");
+  assert.equal(bankList.statements[0].lines[0].rawValues.debit_mad, "120.0");
+  assert.equal(bankList.statements[0].lines[1].classification, "SALARY");
+  assert.equal(bankList.statements[0].lines[2].balanceConsistent, false);
+
   const pool = new Pool();
   try {
     const stored = await pool.query(
@@ -77,6 +90,12 @@ test("parcours JPG français via Nginx, API, worker et PostgreSQL", async () => 
     assert.equal(stored.rows[0]?.page_number, 1);
     assert.equal(stored.rows[0]?.confidence_percent, null);
     assert.equal(stored.rows[0]?.observation_inputs, 1);
+    const bankStored = await pool.query(
+      `SELECT count(*)::int AS lines FROM bank_lines bl
+        JOIN bank_statements bs ON bs.id = bl.statement_id WHERE bs.batch_id = $1`,
+      [batchId],
+    );
+    assert.equal(bankStored.rows[0]?.lines, 3);
   } finally {
     await pool.end();
   }

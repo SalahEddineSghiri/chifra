@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { z } from "zod";
+import { BankStatements } from "./BankStatements";
 
 const batchSchema = z.object({
   id: z.string().uuid(),
@@ -338,7 +339,12 @@ export function App() {
           </ul>
         )}
       </section>
-      {selectedBatch && <BatchDetails key={selectedBatch.id} batch={selectedBatch} />}
+      {selectedBatch && (
+        <>
+          <BatchDetails key={selectedBatch.id} batch={selectedBatch} />
+          <BankStatements key={`bank-${selectedBatch.id}`} batchId={selectedBatch.id} />
+        </>
+      )}
     </main>
   );
 }

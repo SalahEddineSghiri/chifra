@@ -8,8 +8,8 @@ DECLARE
   empty_success_rejected boolean := false;
   missing_reason_rejected boolean := false;
 BEGIN
-  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 6) <> 6 THEN
-    RAISE EXCEPTION 'Migrations 1 à 6 attendues';
+  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 7) <> 7 THEN
+    RAISE EXCEPTION 'Migrations 1 à 7 attendues';
   END IF;
 
   INSERT INTO batches (id) VALUES (test_batch);

@@ -80,6 +80,22 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .review-required { display: block; margin-top: 8px; color: #a45c00; }
 
+.bank-statement { margin-top: 22px; }
+
+.bank-statement h3 { margin-bottom: 4px; }
+
+.table-scroll { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+
+th, td { padding: 9px; border-bottom: 1px solid #d9e3df; text-align: left; vertical-align: top; }
+
+th { color: #4c615d; background: #f3f6f4; }
+
+.amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.amount small { display: block; color: #5c6d69; }
+
 @media (max-width: 600px) {
   .form-row, .batch-list li { flex-direction: column; }
   .meta { text-align: left; }
