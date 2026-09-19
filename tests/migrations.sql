@@ -8,8 +8,8 @@ DECLARE
   empty_success_rejected boolean := false;
   missing_reason_rejected boolean := false;
 BEGIN
-  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 7) <> 7 THEN
-    RAISE EXCEPTION 'Migrations 1 à 7 attendues';
+  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 8) <> 8 THEN
+    RAISE EXCEPTION 'Migrations 1 à 8 attendues';
   END IF;
 
   INSERT INTO batches (id) VALUES (test_batch);
@@ -93,6 +93,28 @@ BEGIN
   END;
   IF NOT missing_status_reason_rejected THEN
     RAISE EXCEPTION 'Motif terminal obligatoire non appliqué';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  test_source uuid;
+  test_extraction uuid;
+BEGIN
+  SELECT id INTO test_source FROM source_files WHERE content_sha256 = repeat('c', 64);
+  INSERT INTO source_extractions (
+    id, source_id, method, method_version, status, text_content
+  ) VALUES (
+    gen_random_uuid(), test_source, 'TABULAR', 'xlsx-test-v1', 'SUCCEEDED', '[{}]'
+  ) RETURNING id INTO test_extraction;
+
+  INSERT INTO source_tabular_records (
+    id, source_id, extraction_id, row_number, external_document_id, status, fields
+  ) VALUES (
+    gen_random_uuid(), test_source, test_extraction, 2, 'TST-001', 'COMPLETE', '{}'::jsonb
+  );
+  IF (SELECT count(*) FROM source_tabular_records WHERE source_id = test_source) <> 1 THEN
+    RAISE EXCEPTION 'Ligne XLSX non persistée';
   END IF;
 END $$;
 

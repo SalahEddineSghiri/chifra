@@ -96,6 +96,10 @@ th { color: #4c615d; background: #f3f6f4; }
 
 .amount small { display: block; color: #5c6d69; }
 
+.tabular-records { margin-top: 16px; }
+
+.tabular-records td small { display: block; color: #5c6d69; min-width: 100px; }
+
 @media (max-width: 600px) {
   .form-row, .batch-list li { flex-direction: column; }
   .meta { text-align: left; }

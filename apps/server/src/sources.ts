@@ -29,6 +29,7 @@ type SourceRow = {
   observation_version: string | null;
   observations: unknown | null;
   extractions: unknown;
+  tabular_records: unknown;
 };
 
 export function registerSourceRoutes(
@@ -57,18 +58,33 @@ export function registerSourceRoutes(
                   'version', history.method_version,
                   'status', history.status,
                   'reason', history.failure_reason,
-                  'pages', COALESCE(pages.page_numbers, '[]'::jsonb)
+                  'pages', COALESCE(segments.page_numbers, '[]'::jsonb),
+                  'rows', COALESCE(segments.row_numbers, '[]'::jsonb)
                 ) ORDER BY history.created_at,
                   CASE history.method WHEN 'PDF_TEXT' THEN 1 WHEN 'OCR' THEN 2 ELSE 3 END,
                   history.id)
                   FROM source_extractions history
                   LEFT JOIN LATERAL (
-                    SELECT jsonb_agg(segment.page_number ORDER BY segment.page_number) AS page_numbers
+                    SELECT jsonb_agg(segment.page_number ORDER BY segment.page_number)
+                             FILTER (WHERE segment.page_number IS NOT NULL) AS page_numbers,
+                           jsonb_agg(segment.row_number ORDER BY segment.row_number)
+                             FILTER (WHERE segment.row_number IS NOT NULL) AS row_numbers
                       FROM source_extraction_segments segment
                      WHERE segment.extraction_id = history.id
-                  ) pages ON true
+                  ) segments ON true
                  WHERE history.source_id = sf.id
-              ), '[]'::jsonb) AS extractions
+              ), '[]'::jsonb) AS extractions,
+              COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                  'id', record.id,
+                  'rowNumber', record.row_number,
+                  'externalDocumentId', record.external_document_id,
+                  'status', record.status,
+                  'fields', record.fields
+                ) ORDER BY record.row_number)
+                  FROM source_tabular_records record
+                 WHERE record.source_id = sf.id
+              ), '[]'::jsonb) AS tabular_records
          FROM source_files sf
          LEFT JOIN LATERAL (
            SELECT status, method, failure_reason, text_content
@@ -99,6 +115,7 @@ export function registerSourceRoutes(
         observationVersion: row.observation_version,
         observations: row.observations,
         extractions: row.extractions,
+        tabularRecords: row.tabular_records,
       })),
     };
   });
@@ -116,7 +133,7 @@ export function registerSourceRoutes(
     }
 
     const file = await request.file();
-    if (!file) return reply.code(400).send({ error: "Fichier PDF ou JPG requis." });
+    if (!file) return reply.code(400).send({ error: "Fichier PDF, JPG ou XLSX requis." });
 
     const sourceId = randomUUID();
     const temporaryPath = join(sourceDir, `${sourceId}.upload`);
@@ -161,9 +178,14 @@ export function registerSourceRoutes(
       const isJpeg = file.mimetype === "image/jpeg"
         && (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg"))
         && signature[0] === 0xff && signature[1] === 0xd8 && signature[2] === 0xff;
+      const isXlsx = file.mimetype
+        === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        && lowerName.endsWith(".xlsx")
+        && signature[0] === 0x50 && signature[1] === 0x4b
+        && signature[2] === 0x03 && signature[3] === 0x04;
       if (sizeBytes === 0 || filename.length > 255 || /[\x00-\x1f]/.test(filename)
-        || (!isPdf && !isJpeg)) {
-        return reply.code(415).send({ error: "Fichier PDF ou JPG valide requis." });
+        || (!isPdf && !isJpeg && !isXlsx)) {
+        return reply.code(415).send({ error: "Fichier PDF, JPG ou XLSX valide requis." });
       }
       if (isJpeg && await readJpegDimensions(temporaryPath) === null) {
         return reply.code(415).send({
@@ -171,8 +193,9 @@ export function registerSourceRoutes(
         });
       }
 
-      const mediaType = isPdf ? "application/pdf" : "image/jpeg";
-      const storageKey = `${sourceId}.${isPdf ? "pdf" : "jpg"}`;
+      const mediaType = isPdf ? "application/pdf" : isJpeg ? "image/jpeg"
+        : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const storageKey = `${sourceId}.${isPdf ? "pdf" : isJpeg ? "jpg" : "xlsx"}`;
       storedPath = join(sourceDir, storageKey);
 
       await rename(temporaryPath, storedPath);

@@ -63,6 +63,36 @@ const extractionSchema = z.object({
   status: z.string(),
   reason: z.string().nullable(),
   pages: z.array(z.number().int().positive()),
+  rows: z.array(z.number().int().positive()).default([]),
+});
+const tabularFieldSchema = z.object({
+  value: z.string().nullable(),
+  rawValue: z.string().nullable(),
+  missingReason: z.string().nullable(),
+  row: z.number().int().positive(),
+  column: z.string(),
+  extractionMethod: z.literal("TABULAR"),
+  extractionVersion: z.string(),
+  normalization: z.array(z.string()),
+});
+const tabularFieldsSchema = z.object({
+  externalDocumentId: tabularFieldSchema,
+  invoiceNumber: tabularFieldSchema,
+  supplierName: tabularFieldSchema,
+  supplierIce: tabularFieldSchema,
+  issuedOn: tabularFieldSchema,
+  account: tabularFieldSchema,
+  printedVatRate: tabularFieldSchema,
+  amountHt: tabularFieldSchema,
+  vatAmount: tabularFieldSchema,
+  amountTtc: tabularFieldSchema,
+});
+const tabularRecordSchema = z.object({
+  id: z.string().uuid(),
+  rowNumber: z.number().int().positive(),
+  externalDocumentId: z.string().nullable(),
+  status: z.enum(["COMPLETE", "PARTIAL"]),
+  fields: tabularFieldsSchema,
 });
 const sourceSchema = z.object({
   id: z.string().uuid(),
@@ -78,28 +108,48 @@ const sourceSchema = z.object({
   observationVersion: z.string().nullable(),
   observations: observationFieldsSchema.nullable(),
   extractions: z.array(extractionSchema),
+  tabularRecords: z.array(tabularRecordSchema),
 });
 const sourcesSchema = z.object({ sources: z.array(sourceSchema) });
 const uploadSchema = z.object({ source: z.object({ id: z.string().uuid(), status: z.string() }) });
 type Batch = z.infer<typeof batchSchema>;
 type Source = z.infer<typeof sourceSchema>;
+type TabularField = z.infer<typeof tabularFieldSchema>;
 
 async function readJson(response: Response): Promise<unknown> {
-  if (!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
-  return response.json();
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const error = z.object({ error: z.string() }).safeParse(body);
+    throw new Error(error.success ? error.data.error : `Erreur HTTP ${response.status}`);
+  }
+  return body;
+}
+
+type UploadProgress = { completed: number; total: number };
+
+function TabularValue({ field }: { field: TabularField }) {
+  return (
+    <>
+      <span>{field.value ?? "Non lu"}</span>
+      {field.rawValue !== null && field.rawValue !== field.value && (
+        <small>Brut : {field.rawValue}</small>
+      )}
+      {field.missingReason && <small>{field.missingReason}</small>}
+    </>
+  );
 }
 
 function BatchDetails({ batch }: { batch: Batch }) {
   const [sources, setSources] = useState<Source[]>([]);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadSources() {
     const response = await fetch(`/api/batches/${batch.id}/sources`);
     const parsed = sourcesSchema.parse(await readJson(response));
     setSources(parsed.sources);
-    setError(null);
   }
 
   useEffect(() => {
@@ -112,45 +162,62 @@ function BatchDetails({ batch }: { batch: Batch }) {
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file) return;
+    if (files.length === 0) return;
     const formElement = event.currentTarget;
     setUploading(true);
+    setUploadProgress({ completed: 0, total: files.length });
     setError(null);
-    try {
+    const failures: string[] = [];
+    for (const [index, file] of files.entries()) {
       const form = new FormData();
       form.append("file", file);
-      uploadSchema.parse(await readJson(await fetch(`/api/batches/${batch.id}/sources`, {
-        method: "POST", body: form,
-      })));
-      setFile(null);
-      formElement.reset();
-      await loadSources();
-    } catch {
-      setError("Envoi impossible. Vérifiez le PDF ou JPG, sa taille et les doublons.");
-    } finally {
-      setUploading(false);
+      try {
+        uploadSchema.parse(await readJson(await fetch(`/api/batches/${batch.id}/sources`, {
+          method: "POST", body: form,
+        })));
+      } catch (cause) {
+        failures.push(`${file.name} : ${cause instanceof Error ? cause.message : "envoi impossible"}`);
+      }
+      setUploadProgress({ completed: index + 1, total: files.length });
     }
+    setFiles([]);
+    formElement.reset();
+    await loadSources().catch(() => failures.push("La liste des fichiers n'a pas pu être actualisée."));
+    setError(failures.length > 0 ? failures.join(" ") : null);
+    setUploading(false);
   }
 
   return (
     <section aria-labelledby="sources-title" className="panel">
       <h2 id="sources-title">Fichiers du lot : {batch.name ?? batch.id}</h2>
-      <p>Les PDF texte sont lus directement. Les pages scannées et les images JPG passent par OCR en français, arabe et anglais.</p>
+      <p>Sélectionnez plusieurs documents en une fois. Les PDF texte sont lus directement, les scans et JPG passent par OCR, et les XLSX sont lus ligne par ligne.</p>
       <form onSubmit={(event) => void upload(event)}>
-        <label htmlFor="source-file">Ajouter un PDF ou JPG (15 Mo maximum)</label>
+        <label htmlFor="source-file">Ajouter des PDF, JPG ou XLSX (15 Mo maximum par fichier)</label>
         <div className="form-row">
           <input
             id="source-file"
             type="file"
-            accept="application/pdf,image/jpeg,.pdf,.jpg,.jpeg"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            accept="application/pdf,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.jpg,.jpeg,.xlsx"
+            multiple
+            onChange={(event) => {
+              const selected = Array.from(event.target.files ?? []);
+              setFiles(selected);
+              setError(null);
+              setUploadProgress(null);
+            }}
             required
           />
-          <button type="submit" disabled={!file || uploading}>
-            {uploading ? "Envoi…" : "Envoyer"}
+          <button type="submit" disabled={files.length === 0 || uploading}>
+            {uploading && uploadProgress
+              ? `Envoi ${uploadProgress.completed}/${uploadProgress.total}…`
+              : `Envoyer${files.length > 1 ? ` ${files.length} fichiers` : ""}`}
           </button>
         </div>
       </form>
+      <p className="meta">{sources.length} document(s) enregistrés dans ce lot.</p>
+      {uploadProgress && !uploading && (
+        <p>{uploadProgress.completed}/{uploadProgress.total} envoi(s) terminé(s).</p>
+      )}
       {error && <p role="alert" className="error">{error}</p>}
       {sources.length === 0 ? (
         <p>Aucun fichier dans ce lot.</p>
@@ -222,7 +289,39 @@ function BatchDetails({ batch }: { batch: Batch }) {
                   </dl>
                 </div>
               )}
-              {source.textPreview && <pre dir="auto" className="bidi-text">{source.textPreview}</pre>}
+              {source.tabularRecords.length > 0 && (
+                <div className="table-scroll tabular-records">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Ligne</th><th>ID</th><th>Numéro</th><th>Fournisseur</th>
+                        <th>ICE</th><th>Date</th><th>Compte</th><th>Taux TVA</th>
+                        <th>HT</th><th>TVA</th><th>TTC</th><th>État</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {source.tabularRecords.map((record) => (
+                        <tr key={record.id}>
+                          <td>{record.rowNumber}</td>
+                          <td><TabularValue field={record.fields.externalDocumentId} /></td>
+                          <td><TabularValue field={record.fields.invoiceNumber} /></td>
+                          <td><TabularValue field={record.fields.supplierName} /></td>
+                          <td><TabularValue field={record.fields.supplierIce} /></td>
+                          <td><TabularValue field={record.fields.issuedOn} /></td>
+                          <td><TabularValue field={record.fields.account} /></td>
+                          <td className="amount"><TabularValue field={record.fields.printedVatRate} /></td>
+                          <td className="amount"><TabularValue field={record.fields.amountHt} /></td>
+                          <td className="amount"><TabularValue field={record.fields.vatAmount} /></td>
+                          <td className="amount"><TabularValue field={record.fields.amountTtc} /></td>
+                          <td>{record.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {source.textPreview && source.extractionMethod !== "TABULAR"
+                && <pre dir="auto" className="bidi-text">{source.textPreview}</pre>}
             </li>
           ))}
         </ul>

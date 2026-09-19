@@ -20,7 +20,10 @@ COPY tests/batches.test.mjs ./tests/batches.test.mjs
 COPY tests/bank-statements.test.mjs ./tests/bank-statements.test.mjs
 COPY tests/bank-csv.test.mjs ./tests/bank-csv.test.mjs
 COPY tests/observations.test.mjs ./tests/observations.test.mjs
+COPY tests/batch-ingestion.test.mjs ./tests/batch-ingestion.test.mjs
 COPY tests/uploads.test.mjs ./tests/uploads.test.mjs
+COPY tests/xlsx.test.mjs ./tests/xlsx.test.mjs
+COPY tests/xlsx-upload.test.mjs ./tests/xlsx-upload.test.mjs
 COPY tests/e2e.test.mjs ./tests/e2e.test.mjs
 COPY tests/fixtures ./tests/fixtures
 RUN npm run typecheck:server && npm run build:server

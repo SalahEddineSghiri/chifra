@@ -6,6 +6,8 @@ import {
   extractionAttempt, extractSourceContent, PDF_TEXT_VERSION, SourceTechnicalError,
 } from "./extraction.js";
 import { saveExtractionOutcome } from "./extraction-store.js";
+import { saveTabularOutcome } from "./tabular-store.js";
+import { extractXlsx } from "./xlsx.js";
 import { OCR_VERSION } from "./ocr.js";
 import { OBSERVATION_PARSER_VERSION } from "./observations.js";
 import {
@@ -13,7 +15,9 @@ import {
 } from "./queue.js";
 
 const jobSchema = z.strictObject({ sourceId: z.uuid() });
-const SUPPORTED_MEDIA = ["application/pdf", "image/jpeg"] as const;
+const DOCUMENT_MEDIA = ["application/pdf", "image/jpeg"] as const;
+const XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const SUPPORTED_MEDIA = [...DOCUMENT_MEDIA, XLSX_MEDIA] as const;
 type ClaimedSource = { storage_key: string; media_type: string };
 
 async function claimSource(pool: Pool, sourceId: string): Promise<ClaimedSource | null> {
@@ -29,12 +33,19 @@ async function claimSource(pool: Pool, sourceId: string): Promise<ClaimedSource 
 async function processSource(pool: Pool, sourceDir: string, sourceId: string) {
   const source = await claimSource(pool, sourceId);
   if (!source) return;
-  const extension = source.media_type === "application/pdf" ? "pdf" : "jpg";
+  const extension = source.media_type === "application/pdf" ? "pdf"
+    : source.media_type === "image/jpeg" ? "jpg" : "xlsx";
   if (!new RegExp(`^[0-9a-f-]{36}\\.${extension}$`).test(source.storage_key)) {
+    if (source.media_type === XLSX_MEDIA) throw new Error("Clé de stockage XLSX invalide");
     throw new SourceTechnicalError(
       source.media_type === "application/pdf" ? "PDF_TEXT" : "OCR",
       [], "Clé de stockage invalide après 3 tentatives.",
     );
+  }
+  if (source.media_type === XLSX_MEDIA) {
+    const outcome = await extractXlsx(join(sourceDir, source.storage_key));
+    await saveTabularOutcome(pool, sourceId, outcome);
+    return;
   }
   const outcome = await extractSourceContent(
     source.media_type, join(sourceDir, source.storage_key),
@@ -144,7 +155,7 @@ export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sou
                 AND se.method_version <> $3
             )
         )`,
-    [SUPPORTED_MEDIA, OBSERVATION_PARSER_VERSION, OCR_VERSION],
+    [DOCUMENT_MEDIA, OBSERVATION_PARSER_VERSION, OCR_VERSION],
   );
   const worker = new Worker<SourceJob>(
     SOURCE_QUEUE,

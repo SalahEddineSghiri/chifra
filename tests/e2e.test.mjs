@@ -14,7 +14,7 @@ async function json(response) {
   return response.json();
 }
 
-test("parcours OCR et relevé CSV via Nginx, API, worker et PostgreSQL", async () => {
+test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", async () => {
   const home = await fetch(baseUrl);
   assert.equal(home.status, 200);
   assert.match(await home.text(), /<div id="root"><\/div>/);
@@ -57,6 +57,27 @@ test("parcours OCR et relevé CSV via Nginx, API, worker et PostgreSQL", async (
   assert.equal(source.observations.vatAmount.value, "1560.00");
   assert.equal(source.observations.amountTtc.value, "9360.00");
 
+  const xlsx = await readFile(new URL("./fixtures/purchases.xlsx", import.meta.url));
+  const xlsxForm = new FormData();
+  xlsxForm.append("file", new Blob([xlsx], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  }), "achats-e2e.xlsx");
+  const xlsxUploaded = await json(await fetch(`${baseUrl}/api/batches/${batchId}/sources`, {
+    method: "POST", body: xlsxForm,
+  }));
+  let xlsxSource;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const listed = await json(await fetch(`${baseUrl}/api/batches/${batchId}/sources`));
+    xlsxSource = listed.sources.find((item) => item.id === xlsxUploaded.source.id);
+    if (["DONE", "FAILED", "NON_TRAITE"].includes(xlsxSource?.status)) break;
+    await sleep(100);
+  }
+  assert.equal(xlsxSource?.status, "DONE");
+  assert.equal(xlsxSource.extractionMethod, "TABULAR");
+  assert.equal(xlsxSource.tabularRecords.length, 3);
+  assert.equal(xlsxSource.tabularRecords[1].fields.amountHt.rawValue, "250.5");
+  assert.equal(xlsxSource.tabularRecords[1].fields.amountHt.value, "250.50");
+
   const csv = await readFile(new URL("./fixtures/bank-statement.csv", import.meta.url));
   const bankForm = new FormData();
   bankForm.append("file", new Blob([csv], { type: "text/csv" }), "releve-e2e.csv");
@@ -90,6 +111,11 @@ test("parcours OCR et relevé CSV via Nginx, API, worker et PostgreSQL", async (
     assert.equal(stored.rows[0]?.page_number, 1);
     assert.equal(stored.rows[0]?.confidence_percent, null);
     assert.equal(stored.rows[0]?.observation_inputs, 1);
+    const xlsxStored = await pool.query(
+      "SELECT count(*)::int AS records FROM source_tabular_records WHERE source_id = $1",
+      [xlsxUploaded.source.id],
+    );
+    assert.equal(xlsxStored.rows[0]?.records, 3);
     const bankStored = await pool.query(
       `SELECT count(*)::int AS lines FROM bank_lines bl
         JOIN bank_statements bs ON bs.id = bl.statement_id WHERE bs.batch_id = $1`,
