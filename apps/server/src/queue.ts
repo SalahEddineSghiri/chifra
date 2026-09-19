@@ -52,8 +52,15 @@ export async function enqueueAudit(queue: Queue<QueueJob>, auditJobId: string, b
 }
 
 export async function enqueueAgent(queue: Queue<QueueJob>, agentRunId: string, batchId: string) {
+  const jobId = `agent-${agentRunId}`;
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === "failed" || state === "completed") await existing.remove();
+    else return;
+  }
   await queue.add("agent-analysis", { agentRunId, batchId }, {
-    jobId: `agent-${agentRunId}`,
+    jobId,
     attempts: AGENT_JOB_ATTEMPTS,
     backoff: { type: "exponential", delay: 2_000 },
     removeOnComplete: true,
