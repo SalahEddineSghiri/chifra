@@ -231,7 +231,7 @@ test("OCR PDF/JPG français et anglais, limites arabes, erreurs et reprise", asy
       ["PDF_TEXT", "NON_TRAITE"], ["OCR", "SUCCEEDED"],
     ]);
     assert.equal(arabicScan.observationStatus, "PARTIAL");
-    assert.equal(arabicScan.observations.invoiceNumber.value, null);
+    assert.equal(arabicScan.observations.invoiceNumber.value, "AR-2026-0001");
     assert.equal(arabicScan.observations.amountTtc.value, "9360.00");
 
     const mixedId = await upload(
