@@ -8,8 +8,15 @@ DECLARE
   empty_success_rejected boolean := false;
   missing_reason_rejected boolean := false;
 BEGIN
-  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 9) <> 9 THEN
-    RAISE EXCEPTION 'Migrations 1 à 9 attendues';
+  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 10) <> 10 THEN
+    RAISE EXCEPTION 'Migrations 1 à 10 attendues';
+  END IF;
+
+  IF to_regclass('public.reconciliation_runs') IS NULL
+     OR to_regclass('public.reconciliation_jobs') IS NULL
+     OR to_regclass('public.calculation_proofs') IS NULL
+     OR to_regclass('public.payment_allocations') IS NULL THEN
+    RAISE EXCEPTION 'Tables de rapprochement absentes';
   END IF;
 
   INSERT INTO batches (id) VALUES (test_batch);

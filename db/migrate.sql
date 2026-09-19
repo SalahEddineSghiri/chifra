@@ -81,4 +81,13 @@ SELECT CASE WHEN EXISTS (SELECT 1 FROM schema_migrations WHERE version = 9)
 INSERT INTO schema_migrations (version) VALUES (9);
 \endif
 
+SELECT CASE WHEN EXISTS (SELECT 1 FROM schema_migrations WHERE version = 10)
+  THEN 'false' ELSE 'true' END AS apply_010
+\gset
+
+\if :apply_010
+\ir migrations/010_reconciliation.sql
+INSERT INTO schema_migrations (version) VALUES (10);
+\endif
+
 COMMIT;

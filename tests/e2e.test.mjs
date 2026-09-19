@@ -14,6 +14,20 @@ async function json(response) {
   return response.json();
 }
 
+async function waitForReconciliation(batchId) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    const current = await json(await fetch(
+      `${baseUrl}/api/batches/${batchId}/reconciliation`,
+    ));
+    if (current.job?.status === "FAILED") {
+      assert.fail(current.job.failureReason ?? "Rapprochement en échec");
+    }
+    if (current.job?.status === "COMPLETED" && current.reconciliation) return current;
+    await sleep(100);
+  }
+  assert.fail("Délai dépassé pendant le rapprochement");
+}
+
 test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", async () => {
   const home = await fetch(baseUrl);
   assert.equal(home.status, 200);
@@ -109,6 +123,77 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
   assert.equal(reviewed.conflicts.length, 7);
   assert.ok(reviewed.conflicts.some((conflict) => conflict.fieldName === "amountTtc"));
 
+  await json(await fetch(
+    `${baseUrl}/api/batches/${batchId}/reconciliation`, { method: "POST" },
+  ));
+  const reconciliation = await waitForReconciliation(batchId);
+  assert.equal(reconciliation.reconciliation.engineVersion, "reconciliation-v1");
+  assert.equal(reconciliation.reconciliation.lines.length, 3);
+  assert.equal(reconciliation.reconciliation.lines[0].status, "REVIEW_REQUIRED");
+  assert.equal(reconciliation.reconciliation.lines[0].allocations.length, 0);
+  assert.equal(reconciliation.reconciliation.lines[1].status, "EXCLUDED");
+  assert.equal(reconciliation.reconciliation.lines[2].status, "EXCLUDED");
+  assert.equal(reconciliation.reconciliation.summary.fullyMatchedLines, 0);
+  assert.equal(reconciliation.reconciliation.summary.eligiblePaymentLines, 1);
+  assert.equal(reconciliation.reconciliation.summary.matchRatePercent, "0.00");
+
+  const reconciliationBatch = await json(await fetch(`${baseUrl}/api/batches`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: `Lot E2E EX-03 ${randomUUID()}` }),
+  }));
+  const reconciliationBatchId = reconciliationBatch.batch.id;
+  const reconciliationXlsxForm = new FormData();
+  reconciliationXlsxForm.append("file", new Blob([xlsx], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  }), "achats-ex03.xlsx");
+  const reconciliationXlsx = await json(await fetch(
+    `${baseUrl}/api/batches/${reconciliationBatchId}/sources`,
+    { method: "POST", body: reconciliationXlsxForm },
+  ));
+  let reconciliationXlsxSource;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const listed = await json(await fetch(
+      `${baseUrl}/api/batches/${reconciliationBatchId}/sources`,
+    ));
+    reconciliationXlsxSource = listed.sources.find(
+      (item) => item.id === reconciliationXlsx.source.id,
+    );
+    if (["DONE", "FAILED", "NON_TRAITE"].includes(reconciliationXlsxSource?.status)) break;
+    await sleep(100);
+  }
+  assert.equal(reconciliationXlsxSource?.status, "DONE");
+  const reconciliationCsv = await readFile(
+    new URL("./fixtures/reconciliation-bank.csv", import.meta.url),
+  );
+  const reconciliationBankForm = new FormData();
+  reconciliationBankForm.append(
+    "file", new Blob([reconciliationCsv], { type: "text/csv" }), "releve-ex03.csv",
+  );
+  await json(await fetch(
+    `${baseUrl}/api/batches/${reconciliationBatchId}/bank-statements`,
+    { method: "POST", body: reconciliationBankForm },
+  ));
+  await json(await fetch(`${baseUrl}/api/batches/${reconciliationBatchId}/close`, {
+    method: "POST",
+  }));
+  await json(await fetch(
+    `${baseUrl}/api/batches/${reconciliationBatchId}/reconciliation`, { method: "POST" },
+  ));
+  const matched = await waitForReconciliation(reconciliationBatchId);
+  assert.deepEqual(matched.reconciliation.lines.map((line) => line.status), [
+    "PARTIALLY_ALLOCATED", "FULLY_MATCHED", "FULLY_MATCHED",
+  ]);
+  assert.equal(matched.reconciliation.summary.fullyMatchedLines, 2);
+  assert.equal(matched.reconciliation.summary.partiallyAllocatedLines, 1);
+  assert.equal(matched.reconciliation.summary.matchRatePercent, "66.67");
+  assert.equal(matched.reconciliation.lines.flatMap((line) => line.allocations).length, 3);
+  const repeatedReconciliation = await fetch(
+    `${baseUrl}/api/batches/${reconciliationBatchId}/reconciliation`, { method: "POST" },
+  );
+  assert.equal(repeatedReconciliation.status, 200);
+  assert.equal((await repeatedReconciliation.json()).reconciliation.id, matched.reconciliation.id);
+
   const pool = new Pool();
   try {
     const stored = await pool.query(
@@ -147,6 +232,24 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
       [batchId],
     );
     assert.deepEqual(consolidated.rows[0], { documents: 3, reviews: 1 });
+    const reconciliationStored = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM reconciliation_runs WHERE batch_id = $1) AS runs,
+         (SELECT count(*)::int FROM calculation_proofs cp
+           JOIN reconciliation_runs rr ON rr.id = cp.run_id WHERE rr.batch_id = $1) AS proofs,
+         (SELECT count(*)::int FROM payment_allocations pa
+           JOIN reconciliation_runs rr ON rr.id = pa.run_id WHERE rr.batch_id = $1) AS allocations`,
+      [batchId],
+    );
+    assert.deepEqual(reconciliationStored.rows[0], { runs: 1, proofs: 1, allocations: 0 });
+    const matchedStored = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM reconciliation_runs WHERE batch_id = $1) AS runs,
+         (SELECT count(*)::int FROM payment_allocations pa
+           JOIN reconciliation_runs rr ON rr.id = pa.run_id WHERE rr.batch_id = $1) AS allocations`,
+      [reconciliationBatchId],
+    );
+    assert.deepEqual(matchedStored.rows[0], { runs: 1, allocations: 3 });
   } finally {
     await pool.end();
   }

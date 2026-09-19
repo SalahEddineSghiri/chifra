@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import { z } from "zod";
 import { readJpegDimensions } from "./jpeg.js";
-import { enqueueSource, type SourceJob } from "./queue.js";
+import { enqueueSource, type QueueJob } from "./queue.js";
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const sourceParamsSchema = z.strictObject({ batchId: z.uuid() });
@@ -35,7 +35,7 @@ type SourceRow = {
 export function registerSourceRoutes(
   app: FastifyInstance,
   pool: Pool,
-  queue: Queue<SourceJob>,
+  queue: Queue<QueueJob>,
   sourceDir: string,
 ) {
   app.get("/api/batches/:batchId/sources", async (request, reply) => {

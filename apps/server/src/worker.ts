@@ -11,10 +11,16 @@ import { extractXlsx, XLSX_PARSER_VERSION } from "./xlsx.js";
 import { OCR_VERSION } from "./ocr.js";
 import { OBSERVATION_PARSER_VERSION } from "./observations.js";
 import {
-  enqueueSource, redisConnection, SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE, type SourceJob,
+  enqueueReconciliation, enqueueSource, redisConnection, SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE,
+  type QueueJob, type ReconciliationJob,
 } from "./queue.js";
+import { runReconciliation } from "./reconciliation-store.js";
 
 const jobSchema = z.strictObject({ sourceId: z.uuid() });
+const reconciliationJobSchema = z.strictObject({
+  reconciliationJobId: z.uuid(),
+  batchId: z.uuid(),
+});
 const DOCUMENT_MEDIA = ["application/pdf", "image/jpeg"] as const;
 const XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const SUPPORTED_MEDIA = [...DOCUMENT_MEDIA, XLSX_MEDIA] as const;
@@ -60,7 +66,7 @@ async function releaseForRetry(pool: Pool, sourceId: string) {
   );
 }
 
-async function runJob(pool: Pool, sourceDir: string, job: Job<SourceJob>) {
+async function runSourceJob(pool: Pool, sourceDir: string, job: Job<QueueJob>) {
   const data = jobSchema.parse(job.data);
   try {
     await processSource(pool, sourceDir, data.sourceId);
@@ -95,7 +101,47 @@ async function runJob(pool: Pool, sourceDir: string, job: Job<SourceJob>) {
   }
 }
 
-async function enqueuePending(pool: Pool, queue: Queue<SourceJob>) {
+async function runReconciliationJob(pool: Pool, job: Job<QueueJob>) {
+  const data: ReconciliationJob = reconciliationJobSchema.parse(job.data);
+  const claimed = await pool.query(
+    `UPDATE reconciliation_jobs
+        SET status = 'PROCESSING', failure_reason = NULL, started_at = COALESCE(started_at, now())
+      WHERE id = $1 AND batch_id = $2 AND status IN ('PENDING', 'PROCESSING')
+      RETURNING id`,
+    [data.reconciliationJobId, data.batchId],
+  );
+  if (claimed.rowCount === 0) return;
+  try {
+    await runReconciliation(pool, data.batchId, data.reconciliationJobId);
+    await pool.query(
+      `UPDATE reconciliation_jobs
+          SET status = 'COMPLETED', completed_at = now(), failure_reason = NULL
+        WHERE id = $1`,
+      [data.reconciliationJobId],
+    );
+  } catch (error) {
+    const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? SOURCE_JOB_ATTEMPTS);
+    await pool.query(
+      `UPDATE reconciliation_jobs
+          SET status = $2, failure_reason = $3,
+              completed_at = CASE WHEN $2 = 'FAILED' THEN now() ELSE NULL END
+        WHERE id = $1`,
+      [data.reconciliationJobId, finalAttempt ? "FAILED" : "PENDING",
+        finalAttempt ? "Erreur technique interne après 3 tentatives." : null],
+    );
+    throw error;
+  }
+}
+
+async function runJob(pool: Pool, sourceDir: string, job: Job<QueueJob>) {
+  if (job.name === "reconcile") {
+    await runReconciliationJob(pool, job);
+    return;
+  }
+  await runSourceJob(pool, sourceDir, job);
+}
+
+async function enqueuePending(pool: Pool, queue: Queue<QueueJob>) {
   const result = await pool.query<{ id: string }>(
     `SELECT id FROM source_files
       WHERE status = 'RECEIVED' AND media_type = ANY($1::text[])
@@ -103,9 +149,16 @@ async function enqueuePending(pool: Pool, queue: Queue<SourceJob>) {
     [SUPPORTED_MEDIA],
   );
   for (const row of result.rows) await enqueueSource(queue, row.id);
+  const reconciliationJobs = await pool.query<{ id: string; batch_id: string }>(
+    `SELECT id, batch_id FROM reconciliation_jobs
+      WHERE status = 'PENDING' ORDER BY created_at LIMIT 100`,
+  );
+  for (const row of reconciliationJobs.rows) {
+    await enqueueReconciliation(queue, row.id, row.batch_id);
+  }
 }
 
-export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sourceDir: string) {
+export async function startSourceWorker(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) {
   const concurrency = Number(process.env.WORKER_CONCURRENCY ?? "2");
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4) {
     throw new Error("WORKER_CONCURRENCY doit être entre 1 et 4");
@@ -168,14 +221,19 @@ export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sou
         )`,
     [XLSX_MEDIA, XLSX_PARSER_VERSION],
   );
-  const worker = new Worker<SourceJob>(
+  await pool.query(
+    `UPDATE reconciliation_jobs
+        SET status = 'PENDING', failure_reason = NULL, completed_at = NULL
+      WHERE status = 'PROCESSING'`,
+  );
+  const worker = new Worker<QueueJob>(
     SOURCE_QUEUE,
     async (job) => runJob(pool, sourceDir, job),
     { connection: redisConnection(), concurrency },
   );
   worker.on("failed", (job, error) => {
     console.error(JSON.stringify({
-      sourceId: job?.data.sourceId,
+      jobId: job?.id,
       attempt: job?.attemptsMade,
       error: error.name,
     }));

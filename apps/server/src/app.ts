@@ -6,7 +6,8 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import { registerBankStatementRoutes } from "./bank-statements.js";
 import { registerDocumentRoutes } from "./documents.js";
-import type { SourceJob } from "./queue.js";
+import { registerReconciliationRoutes } from "./reconciliation.js";
+import type { QueueJob } from "./queue.js";
 import { registerSourceRoutes } from "./sources.js";
 
 const createBatchSchema = z.strictObject({
@@ -29,7 +30,7 @@ function serializeBatch(row: BatchRow) {
   };
 }
 
-export function buildApp(pool: Pool, queue: Queue<SourceJob>, sourceDir: string) {
+export function buildApp(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) {
   const app = Fastify({ logger: true, bodyLimit: 16 * 1024 * 1024 });
   app.register(multipart, { limits: { files: 1, parts: 1, fileSize: 15 * 1024 * 1024 } });
 
@@ -63,5 +64,6 @@ export function buildApp(pool: Pool, queue: Queue<SourceJob>, sourceDir: string)
   registerSourceRoutes(app, pool, queue, sourceDir);
   registerBankStatementRoutes(app, pool);
   registerDocumentRoutes(app, pool);
+  registerReconciliationRoutes(app, pool, queue);
   return app;
 }

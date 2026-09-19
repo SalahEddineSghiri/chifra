@@ -11,6 +11,7 @@ Ces images sont générées pour les tests automatisés. Elles ne font pas parti
 | `ocr-mixed.jpg` | Libellés français, nom et mention arabes, valeurs occidentales | MX-2026-0001, date 2026-01-04, HT 7800.00, TVA 1560.00, TTC 9360.00 |
 | `ocr-blank.jpg` | Image sans texte exploitable | `NON_TRAITE` |
 | `bank-statement.csv` | Relevé bancaire synthétique avec libellé contenant une virgule | Trois lignes, dont une incohérence de solde volontaire |
+| `reconciliation-bank.csv` | Paiements synthétiques liés à `purchases.xlsx` | Acompte 450.00, facture 275.55 et solde 750.00 |
 | `purchases.xlsx` | Export d'achats synthétique | Trois lignes, montants positifs et avoir négatif avec provenance de ligne |
 
 Les assertions comparent le texte OCR réellement produit et les champs extraits. Le parseur ne contient aucune condition liée à ces noms de fichiers. Les chiffres arabo-indiens sont vérifiés séparément par les tests du parseur afin de distinguer leur normalisation déterministe de la qualité de reconnaissance du moteur OCR.

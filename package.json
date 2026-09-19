@@ -9,7 +9,7 @@
     "test": "node --test tests/contracts.test.mjs",
     "typecheck:server": "tsc --noEmit -p tsconfig.server.json",
     "build:server": "tsc -p tsconfig.server.json",
-    "test:server": "node --test --test-concurrency=1 tests/batches.test.mjs tests/bank-csv.test.mjs tests/bank-statements.test.mjs tests/batch-ingestion.test.mjs tests/consolidation.test.mjs tests/observations.test.mjs tests/uploads.test.mjs tests/xlsx.test.mjs tests/xlsx-upload.test.mjs",
+    "test:server": "node --test --test-concurrency=1 tests/batches.test.mjs tests/bank-csv.test.mjs tests/bank-statements.test.mjs tests/batch-ingestion.test.mjs tests/consolidation.test.mjs tests/observations.test.mjs tests/reconciliation-engine.test.mjs tests/reconciliation.test.mjs tests/uploads.test.mjs tests/xlsx.test.mjs tests/xlsx-upload.test.mjs",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "build:web": "vite build --config apps/web/vite.config.ts"
   },

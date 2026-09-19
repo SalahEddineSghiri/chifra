@@ -112,6 +112,10 @@ th { color: #4c615d; background: #f3f6f4; }
 
 .compact-list .conflict { color: #a32121; }
 
+.meta-line, .cell-detail { display: block; color: #5c6d69; font-size: .85rem; }
+
+.cell-detail { margin-top: 4px; }
+
 @media (max-width: 600px) {
   .form-row, .batch-list li { flex-direction: column; }
   .meta { text-align: left; }

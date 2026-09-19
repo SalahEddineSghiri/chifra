@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { z } from "zod";
 import { BankStatements } from "./BankStatements";
 import { Documents } from "./Documents";
+import { Reconciliation } from "./Reconciliation";
 
 const batchSchema = z.object({
   id: z.string().uuid(),
@@ -452,6 +453,11 @@ export function App() {
             batchId={selectedBatch.id}
             batchStatus={selectedBatch.status}
             onCompleted={loadBatches}
+          />
+          <Reconciliation
+            key={`reconciliation-${selectedBatch.id}`}
+            batchId={selectedBatch.id}
+            batchStatus={selectedBatch.status}
           />
         </>
       )}

@@ -1,6 +1,6 @@
 # Chiffra
 
-Chiffra traite progressivement des lots de factures et de relevés bancaires : extraction des données comptables, import CSV bancaire, rapprochement des paiements, contrôles fiscaux, anomalies sourcées et revue humaine.
+Chiffra traite progressivement des lots de factures et de relevés bancaires : extraction des données comptables, import CSV bancaire, rapprochement déterministe des paiements, contrôles fiscaux, anomalies sourcées et revue humaine.
 
 Le projet est en construction. On peut créer un lot, sélectionner plusieurs PDF, JPG ou XLSX en une fois, suivre chaque traitement par le worker, consulter les champs lus automatiquement et importer un relevé bancaire CSV. Chaque fichier garde son propre statut et une erreur d'envoi n'empêche pas les autres fichiers sélectionnés. Le texte natif des PDF reste prioritaire ; Tesseract traite les pages scannées et les JPG sur CPU en français, arabe et anglais. Les XLSX structurés sont lus directement, sans OCR. Chaque champ conserve sa valeur brute, sa valeur normalisée, sa page ou ligne, la méthode et la version d'extraction. Un champ absent reste vide avec un motif. Un champ ambigu reste vide, conserve tous ses candidats et exige explicitement une revue humaine. Ces observations ne sont pas encore des factures validées ni des calculs comptables.
 
@@ -26,7 +26,7 @@ Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé 
 
 Le Compose définit PostgreSQL 16, Redis 7, l’API, le worker et l’interface sur un réseau propre à Chiffra. L’API et le worker utilisent la même image avec des processus distincts. Seule l’interface est publiée sur `127.0.0.1` ; PostgreSQL et Redis ne publient aucun port. Les volumes conservent la base, Redis et les sources entre redémarrages.
 
-Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 9. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page ou ligne, observations, pièces métier et relations entre représentations.
+Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 10. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page ou ligne, observations, pièces métier, relations entre représentations, preuves de calcul et allocations bancaires.
 
 La confiance reste `NULL`, car le parcours actuel ne collecte pas une mesure suffisamment fiable pour la publier. Le motif d’un état terminal est conservé. Au premier démarrage de cette version, le worker reprend les traitements interrompus et recalcule les observations créées par une ancienne version du parseur.
 
@@ -58,7 +58,23 @@ Le bouton « Fermer et consolider le lot » devient utilisable quand les dépôt
 
 L’application accepte l’en-tête fourni `date,libelle,debit_mad,credit_mad,solde_mad`. L’import est atomique et un même contenu ne peut être ajouté deux fois dans un lot. Le contenu CSV original et son empreinte SHA-256 sont conservés. Les montants sont normalisés avec `decimal.js`, stockés en `numeric(18,2)` et échangés comme chaînes ; leurs valeurs CSV brutes restent conservées. Le solde de chaque ligne est contrôlé par rapport à la ligne précédente, sans inventer de solde initial.
 
-La classification actuelle est une préparation explicite au rapprochement : salaires, frais bancaires et règlements clients identifiables sont exclus des candidats d’achats ; les virements débit restants sont seulement marqués comme candidats. Une ligne `OTHER` reste visible. Aucune allocation facture-paiement ni décision de rapprochement n’est créée dans cette tranche.
+La classification sépare les candidats d'achats, les salaires, les frais bancaires, les règlements clients et les opérations à qualifier. Les exclusions et les lignes `OTHER` restent visibles dans le résultat.
+
+## Rapprochement bancaire EX-03
+
+Après fermeture du lot, le bouton « Lancer le rapprochement » place le travail dans BullMQ ; le worker exécute le moteur déterministe `reconciliation-v1` et l'interface suit son état sans bloquer la requête HTTP. Le code utilise `decimal.js` et les montants restent des chaînes décimales dans l'API. Il rapproche uniquement les factures `READY` avec des débits candidats, à partir du fournisseur observé, de la référence éventuelle, d'une fenêtre de 60 jours et du résiduel disponible. Il accepte un paiement partiel ou une combinaison exacte unique de trois pièces au maximum. La recherche combinatoire est limitée à 20 pièces candidates ; au-delà, la ligne passe en revue humaine.
+
+Un montant identique ne suffit pas pour associer une pièce. Plusieurs fournisseurs, références ou regroupements possibles produisent `REVIEW_REQUIRED` sans allocation. Les pièces déjà en revue et les avoirs restent hors calcul automatique tant qu'une règle de rattachement n'est pas validée. Le taux affiché donne explicitement les lignes entièrement rapprochées sur les lignes de paiement éligibles ; les exclusions et opérations à qualifier ne sont pas cachées dans le dénominateur.
+
+Chaque exécution réussie conserve la version du moteur, ses entrées complètes, sa sortie, les décisions par ligne, les résiduels et les allocations dans une seule transaction PostgreSQL. Les travaux interrompus sont repris au démarrage du worker et une erreur technique dispose de trois tentatives. Répéter ou lancer simultanément la même version sur un lot renvoie le même calcul sans doubler les allocations. Le calcul ne fait aucun appel LLM et ne déclare aucune exécution d'outil sans preuve persistée.
+
+L'identifiant de preuve est affiché dans l'interface. Cette commande rejoue le moteur pur sur les entrées enregistrées et compare la sortie sans écrire d'allocation, en remplaçant `<preuve>` par cet identifiant :
+
+```sh
+docker compose exec -T api node dist/server/replay-reconciliation.js <preuve>
+```
+
+Le résultat contient `"verified":true` lorsque la sortie rejouée est identique à la preuve persistée.
 
 ## Données et référentiels fournis
 
@@ -68,7 +84,7 @@ Les documents privés du handoff ne sont pas nécessaires au démarrage de la ve
 |---|---|---|---|---|
 | README du jeu de données | Oui, pour inventorier le corpus et ses scénarios | Non | Non | Guide de couverture et de recette du corpus |
 | Pièces comptables | Oui, avec chargements manuels de pièces de recette | Non | Seulement lorsqu'un utilisateur les dépose | Tests de régression d'ingestion sur le corpus |
-| Relevés bancaires | Oui, format et scénarios contrôlés | Uniquement lorsqu'un utilisateur dépose un CSV | Oui, import versionné, montants exacts, classification et contrôle du solde | Rapprochement avec les factures dans la tranche EX-03 suivante |
+| Relevés bancaires | Oui, format et scénarios contrôlés | Uniquement lorsqu'un utilisateur dépose un CSV | Oui, import versionné, montants exacts, classification, contrôle du solde et rapprochement EX-03 | Enrichissement des scénarios du corpus |
 | `plan-comptable.csv` | Oui | Non | Non | Référentiel versionné pour les propositions comptables |
 | `referentiel-fournisseurs.csv` | Oui | Non | Non | Référentiel versionné pour les contrôles et propositions fournisseur |
 | `regles-fiscales.md` | Oui | Non | Non | Règles fiscales déterministes, identifiées et versionnées |
@@ -91,10 +107,10 @@ docker compose -f compose.test.yaml build
 docker compose -f compose.test.yaml run --rm e2e_tests
 ```
 
-La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un lot synthétique de 50 documents, un PDF texte, un PDF scanné français, des JPG français, anglais, ambigu et illisible, un XLSX d'achats, la consolidation sans double comptage, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Le scénario arabe est conservé mais reporté. Le test final charge un JPG français, un XLSX et un relevé CSV par le Nginx du service web, ferme le lot, puis vérifie l’API, le worker, les valeurs brutes et normalisées, les conflits entre représentations, la classification bancaire et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
+La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un lot synthétique de 50 documents, un PDF texte, un PDF scanné français, des JPG français, anglais, ambigu et illisible, un XLSX d'achats, la consolidation sans double comptage, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Le scénario arabe est conservé mais reporté. Les tests EX-03 couvrent le regroupement de trois factures, un acompte et son solde, la limite de 60 jours, les associations ambiguës, les exclusions, les avoirs hors calcul, la borne de recherche et deux lancements concurrents. Le test final charge un JPG français, un XLSX et un relevé CSV par le Nginx du service web, ferme le lot, lance le rapprochement puis vérifie l'API, le worker, la preuve de calcul et le stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
 
 ```sh
 docker compose -f compose.test.yaml down -v
 ```
 
-L’import des relevés CSV prépare EX-03 sans créer encore d’allocation. Le rapprochement bancaire, les contrôles comptables et fiscaux, l’agent, l’Explainer et la décision de revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.
+Le rapprochement EX-03 est disponible. Les contrôles comptables et fiscaux, l'orchestration LangGraph, l'Explainer et la décision de revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.
