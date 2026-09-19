@@ -7,7 +7,7 @@ import {
 } from "./extraction.js";
 import { saveExtractionOutcome } from "./extraction-store.js";
 import { saveTabularOutcome } from "./tabular-store.js";
-import { extractXlsx } from "./xlsx.js";
+import { extractXlsx, XLSX_PARSER_VERSION } from "./xlsx.js";
 import { OCR_VERSION } from "./ocr.js";
 import { OBSERVATION_PARSER_VERSION } from "./observations.js";
 import {
@@ -156,6 +156,17 @@ export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sou
             )
         )`,
     [DOCUMENT_MEDIA, OBSERVATION_PARSER_VERSION, OCR_VERSION],
+  );
+  await pool.query(
+    `UPDATE source_files sf SET status = 'RECEIVED', status_reason = NULL
+       FROM batches b
+      WHERE sf.batch_id = b.id AND b.status = 'OPEN'
+        AND sf.media_type = $1 AND sf.status IN ('DONE', 'NON_TRAITE', 'FAILED')
+        AND NOT EXISTS (
+          SELECT 1 FROM source_extractions se
+          WHERE se.source_id = sf.id AND se.method = 'TABULAR' AND se.method_version = $2
+        )`,
+    [XLSX_MEDIA, XLSX_PARSER_VERSION],
   );
   const worker = new Worker<SourceJob>(
     SOURCE_QUEUE,

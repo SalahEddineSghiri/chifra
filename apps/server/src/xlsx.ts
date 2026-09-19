@@ -1,6 +1,6 @@
 import { Decimal } from "decimal.js";
 
-export const XLSX_PARSER_VERSION = "xlsx-achats-v1";
+export const XLSX_PARSER_VERSION = "xlsx-achats-v2";
 const expectedHeaders = [
   "id", "numero", "fournisseur", "ice", "date", "compte", "taux_tva", "ht", "tva", "ttc",
 ] as const;
@@ -48,6 +48,22 @@ export type XlsxOutcome =
   | { status: "NON_TRAITE"; reason: string; sheetName: null; records: [] };
 
 class XlsxFormatError extends Error {}
+
+function isUnreadableWorkbook(error: unknown): error is Error {
+  if (!(error instanceof Error)) return false;
+  if (["InvalidInputError", "InvalidSpreadsheetError", "SheetNotFoundError"].includes(error.name)) {
+    return true;
+  }
+  const code = (error as Error & { code?: unknown }).code;
+  return code === "FILE_ENDED";
+}
+
+function workbookFailureReason(error: Error): string {
+  const code = (error as Error & { code?: unknown }).code;
+  return code === "FILE_ENDED"
+    ? "Archive XLSX tronquée ou illisible."
+    : error.message || "Fichier XLSX illisible ou structure non prise en charge.";
+}
 
 function rawCell(value: CellValue): string | null {
   if (value === null) return null;
@@ -186,11 +202,10 @@ export async function extractXlsx(path: string): Promise<XlsxOutcome> {
       records: rows.map(({ row, rowNumber }) => parseRecord(row, rowNumber)),
     };
   } catch (error) {
-    if (error instanceof XlsxFormatError
-      || (error instanceof Error && ["InvalidInputError", "InvalidSpreadsheetError", "SheetNotFoundError"].includes(error.name))) {
+    if (error instanceof XlsxFormatError || isUnreadableWorkbook(error)) {
       return {
         status: "NON_TRAITE",
-        reason: error.message || "Fichier XLSX illisible ou structure non prise en charge.",
+        reason: workbookFailureReason(error),
         sheetName: null,
         records: [],
       };

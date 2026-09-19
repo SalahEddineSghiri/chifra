@@ -28,7 +28,7 @@ test("un faux XLSX reste non traité avec un motif", async () => {
     await writeFile(path, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]));
     const result = await extractXlsx(path);
     assert.equal(result.status, "NON_TRAITE");
-    assert.ok(result.reason.length > 0);
+    assert.match(result.reason, /tronquée ou illisible/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
