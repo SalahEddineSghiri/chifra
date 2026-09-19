@@ -73,6 +73,34 @@ export interface AgentLlm {
 export class LlmConfigurationError extends Error {}
 export class LlmResponseError extends Error {}
 
+export function completeExplanation(
+  evidence: ExplanationEvidence[],
+  explanation: AgentExplanation,
+): AgentExplanation {
+  const evidenceIds = new Set(evidence.map((item) => item.id));
+  if (explanation.findings.some((item) => !evidenceIds.has(item.evidenceId))) {
+    throw new LlmResponseError("Une explication cite une preuve inexistante.");
+  }
+  const byEvidence = new Map<string, AgentExplanation["findings"][number]>();
+  for (const finding of explanation.findings) {
+    if (!byEvidence.has(finding.evidenceId)) byEvidence.set(finding.evidenceId, finding);
+  }
+  const missing = evidence.filter((item) => !byEvidence.has(item.id));
+  const findings = evidence.map((item) => byEvidence.get(item.id) ?? {
+    evidenceId: item.id,
+    explanation: "Cette preuve déterministe reste disponible sans explication générée validée.",
+    recommendedAction: "Consulter la preuve source avant toute décision.",
+  });
+  return {
+    ...explanation,
+    findings,
+    limitations: missing.length === 0 ? explanation.limitations : [...new Set([
+        ...explanation.limitations,
+        "Une explication manquante a été remplacée par un constat système explicite.",
+      ])].slice(-10),
+  };
+}
+
 type CacheRow = { output_payload: unknown };
 type RuntimeConfig = {
   timeoutMs: number;
@@ -231,7 +259,11 @@ export function createAzureAgentLlm(pool: Pool, env: NodeJS.ProcessEnv = process
       const selectionReason = "Explication structurée répétitive à partir de preuves déjà calculées.";
       const key = cacheKey(task, model, EXPLANATION_PROMPT_VERSION, input);
       const cached = await fromCache(pool, key, agentExplanationSchema);
-      if (cached) return { output: cached, task, model, selectionReason, cached: true, durationMs: 0, tokenUsage: { input: null, output: null } };
+      if (cached) return {
+        output: completeExplanation(input.evidence, cached),
+        task, model, selectionReason, cached: true, durationMs: 0,
+        tokenUsage: { input: null, output: null },
+      };
       consumeCallBudget();
       const started = Date.now();
       const response = await routineClient.chat.completions.create({
@@ -248,16 +280,10 @@ export function createAzureAgentLlm(pool: Pool, env: NodeJS.ProcessEnv = process
       if (!content) throw new LlmResponseError("Réponse GPT-4.1 vide.");
       const parsed = agentExplanationSchema.safeParse(parseJson(content));
       if (!parsed.success) throw new LlmResponseError("Explication LLM invalide après validation stricte.");
-      const evidenceIds = new Set(input.evidence.map((item) => item.id));
-      const citedIds = new Set(parsed.data.findings.map((item) => item.evidenceId));
-      if (parsed.data.findings.some((item) => !evidenceIds.has(item.evidenceId))
-        || citedIds.size !== evidenceIds.size
-        || [...evidenceIds].some((id) => !citedIds.has(id))) {
-        throw new LlmResponseError("L'explication ne couvre pas exactement les preuves disponibles.");
-      }
-      await saveCache(pool, key, task, model, EXPLANATION_PROMPT_VERSION, parsed.data);
+      const completed = completeExplanation(input.evidence, parsed.data);
+      await saveCache(pool, key, task, model, EXPLANATION_PROMPT_VERSION, completed);
       return {
-        output: parsed.data, task, model, selectionReason, cached: false,
+        output: completed, task, model, selectionReason, cached: false,
         durationMs: Date.now() - started,
         tokenUsage: {
           input: response.usage?.prompt_tokens ?? null,

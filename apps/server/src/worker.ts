@@ -18,7 +18,7 @@ import {
 import { runReconciliation } from "./reconciliation-store.js";
 import { runAudit } from "./audit-store.js";
 import { loadReferenceData, type ReferenceData } from "./reference-data.js";
-import { executeAgentRun } from "./agent-store.js";
+import { executeAgentRun, recordAgentError } from "./agent-store.js";
 import { createAzureAgentLlm, LlmConfigurationError, LlmResponseError, type AgentLlm } from "./llm.js";
 
 const jobSchema = z.strictObject({ sourceId: z.uuid() });
@@ -199,6 +199,7 @@ async function runAgentJob(
     await executeAgentRun(pool, data.agentRunId, data.batchId, reference.version, llm);
   } catch (error) {
     const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? AGENT_JOB_ATTEMPTS);
+    await recordAgentError(pool, data.agentRunId, job.attemptsMade + 1, finalAttempt);
     await pool.query(
       `UPDATE agent_runs
           SET status = $2, failure_reason = $3,

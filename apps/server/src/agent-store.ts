@@ -254,3 +254,33 @@ export async function executeAgentRun(
   );
   return finalState;
 }
+
+export async function recordAgentError(
+  pool: Pool,
+  runId: string,
+  attempt: number,
+  finalAttempt: boolean,
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT id FROM agent_runs WHERE id = $1 FOR UPDATE", [runId]);
+    const sequenceResult = await client.query<{ sequence: number }>(
+      "SELECT COALESCE(max(sequence), 0)::int + 1 AS sequence FROM agent_events WHERE run_id = $1",
+      [runId],
+    );
+    await client.query(
+      `INSERT INTO agent_events (
+         id, run_id, sequence, role, event_type, task, payload
+       ) VALUES ($1, $2, $3, 'RUNTIME', 'ERROR', 'AGENT_ATTEMPT_FAILED', $4::jsonb)`,
+      [randomUUID(), runId, sequenceResult.rows[0]?.sequence ?? 1,
+        JSON.stringify({ attempt, finalAttempt })],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}

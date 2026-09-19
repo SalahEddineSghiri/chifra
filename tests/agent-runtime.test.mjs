@@ -6,6 +6,7 @@ import {
   requiresComplexPlan,
   runAgentGraph,
 } from "../dist/server/agent-runtime.js";
+import { completeExplanation, LlmResponseError } from "../dist/server/llm.js";
 
 const complexFacts = {
   batchStatus: "COMPLETED",
@@ -27,6 +28,33 @@ test("le routeur conserve les outils obligatoires et les motifs humains", () => 
     "READ_RECONCILIATION", "READ_AUDIT", "ESCALATE_HUMAN", "EXPLAIN",
   ]);
   assert.equal(humanReviewReasons(complexFacts).length, 4);
+});
+
+test("une preuve omise reçoit un constat système et une preuve inventée reste refusée", () => {
+  const evidence = [
+    { id: "INGESTION", kind: "INGESTION", status: "READY", message: "source", proofId: null },
+    { id: "AUDIT:preuve", kind: "AUDIT", status: "ANOMALY", message: "audit", proofId: "preuve" },
+  ];
+  const completed = completeExplanation(evidence, {
+    overview: "Des preuves sont disponibles.",
+    findings: [{
+      evidenceId: "INGESTION",
+      explanation: "La source est traçable.",
+      recommendedAction: "Consulter la source.",
+    }],
+    limitations: [],
+  });
+  assert.deepEqual(completed.findings.map((item) => item.evidenceId), ["INGESTION", "AUDIT:preuve"]);
+  assert.match(completed.findings[1].explanation, /sans explication générée validée/u);
+  assert.throws(() => completeExplanation(evidence, {
+    overview: "Des preuves sont disponibles.",
+    findings: [{
+      evidenceId: "PREUVE_INVENTEE",
+      explanation: "Une preuve serait présente.",
+      recommendedAction: "Consulter la source.",
+    }],
+    limitations: [],
+  }), LlmResponseError);
 });
 
 test("le graphe exécute les cinq rôles et rattache l'explication aux preuves", async () => {
