@@ -1,19 +1,15 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { promisify } from "node:util";
 import { Pool } from "pg";
 import { buildApp } from "../dist/server/app.js";
 import { createSourceQueue, enqueueSource } from "../dist/server/queue.js";
 import { startSourceWorker } from "../dist/server/worker.js";
-
-const run = promisify(execFile);
 
 function makePdf(text) {
   const lines = Array.isArray(text) ? text : text ? [text] : [];
@@ -122,6 +118,7 @@ test("OCR PDF/JPG français et anglais, limites arabes, erreurs et reprise", asy
   const app = buildApp(pool, queue, sourceDir);
   let closeWorker = await startSourceWorker(pool, queue, sourceDir);
   const invoiceJpeg = await readFile(new URL("./fixtures/ocr-invoice.jpg", import.meta.url));
+  const englishJpeg = await readFile(new URL("./fixtures/ocr-english.jpg", import.meta.url));
   const ambiguousJpeg = await readFile(new URL("./fixtures/ocr-ambiguous.jpg", import.meta.url));
   const arabicJpeg = await readFile(new URL("./fixtures/ocr-arabic.jpg", import.meta.url));
   const mixedJpeg = await readFile(new URL("./fixtures/ocr-mixed.jpg", import.meta.url));
@@ -193,22 +190,6 @@ test("OCR PDF/JPG français et anglais, limites arabes, erreurs et reprise", asy
     assert.equal(scan.observations.invoiceNumber.value, "FA-2026-0001");
     assert.equal(scan.observations.amountHt.value, "7800.00");
 
-    const englishPdfPath = join(sourceDir, "english-fixture.pdf");
-    const englishImagePrefix = join(sourceDir, "english-fixture");
-    await writeFile(englishPdfPath, makePdf([
-      "SUPPLIER EXAMPLE",
-      "ICE 005678901000091",
-      "INVOICE N EN-2026-0001",
-      "Date 2026-01-05",
-      "ICE customer 001987654000073",
-      "Total excl tax 7800.00",
-      "VAT 20% 1560.00",
-      "Total incl tax 9360.00",
-    ]));
-    await run("pdftoppm", [
-      "-scale-to", "2600", "-singlefile", "-jpeg", englishPdfPath, englishImagePrefix,
-    ]);
-    const englishJpeg = await readFile(`${englishImagePrefix}.jpg`);
     const englishId = await upload(
       app, batchId, englishJpeg, "english-invoice.jpg", "image/jpeg",
     );

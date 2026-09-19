@@ -75,7 +75,7 @@ docker compose -f compose.test.yaml build
 docker compose -f compose.test.yaml run --rm e2e_tests
 ```
 
-La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, des PDF scannés français et arabe, des JPG français, anglais, arabe, mixte, ambigu et illisible, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. La fixture anglaise est rasterisée pendant le test avant de passer par l’API et le worker. Les cas arabe et mixte vérifient explicitement leur résultat partiel actuel sans compléter les champs absents. Le test final charge un JPG français par le Nginx du service web et vérifie l’API, le worker, les valeurs brutes et normalisées et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
+La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, des PDF scannés français et arabe, des JPG français, anglais, arabe, mixte, ambigu et illisible, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Les fixtures synthétiques anglaise et française passent par l’API et le worker. Les cas arabe et mixte vérifient explicitement leur résultat partiel actuel sans compléter les champs absents. Le test final charge un JPG français par le Nginx du service web et vérifie l’API, le worker, les valeurs brutes et normalisées et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
 
 ```sh
 docker compose -f compose.test.yaml down -v

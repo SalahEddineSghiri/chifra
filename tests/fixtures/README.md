@@ -5,6 +5,7 @@ Ces images sont générées pour les tests automatisés. Elles ne font pas parti
 | Fichier | Cas vérifié | Valeurs attendues principales |
 |---|---|---|
 | `ocr-invoice.jpg` | Facture française lisible | FA-2026-0001, HT 7800.00, TVA 1560.00, TTC 9360.00 |
+| `ocr-english.jpg` | Facture anglaise lisible | EN-2026-0001, HT 7800.00, TVA 1560.00, TTC 9360.00 |
 | `ocr-ambiguous.jpg` | Deux HT différents | HT ambigu, TTC 9000.00 |
 | `ocr-arabic.jpg` | Libellés arabes et valeurs occidentales sur lignes séparées | AR-2026-0001, date 2026-01-03, HT 7800.00, TVA 1560.00, TTC 9360.00 |
 | `ocr-mixed.jpg` | Libellés français, nom et mention arabes, valeurs occidentales | MX-2026-0001, date 2026-01-04, HT 7800.00, TVA 1560.00, TTC 9360.00 |
