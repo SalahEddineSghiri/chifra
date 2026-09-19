@@ -21,6 +21,7 @@ COPY tests/bank-statements.test.mjs ./tests/bank-statements.test.mjs
 COPY tests/bank-csv.test.mjs ./tests/bank-csv.test.mjs
 COPY tests/observations.test.mjs ./tests/observations.test.mjs
 COPY tests/batch-ingestion.test.mjs ./tests/batch-ingestion.test.mjs
+COPY tests/consolidation.test.mjs ./tests/consolidation.test.mjs
 COPY tests/uploads.test.mjs ./tests/uploads.test.mjs
 COPY tests/xlsx.test.mjs ./tests/xlsx.test.mjs
 COPY tests/xlsx-upload.test.mjs ./tests/xlsx-upload.test.mjs

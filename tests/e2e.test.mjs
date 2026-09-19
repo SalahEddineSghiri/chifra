@@ -28,7 +28,7 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
   const batchId = created.batch.id;
   const jpeg = await readFile(new URL("./fixtures/ocr-invoice.jpg", import.meta.url));
   const form = new FormData();
-  form.append("file", new Blob([jpeg], { type: "image/jpeg" }), "facture-francaise-e2e.jpg");
+  form.append("file", new Blob([jpeg], { type: "image/jpeg" }), "TST-001.jpg");
   const uploaded = await json(await fetch(`${baseUrl}/api/batches/${batchId}/sources`, {
     method: "POST", body: form,
   }));
@@ -91,6 +91,24 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
   assert.equal(bankList.statements[0].lines[1].classification, "SALARY");
   assert.equal(bankList.statements[0].lines[2].balanceConsistent, false);
 
+  const closed = await json(await fetch(`${baseUrl}/api/batches/${batchId}/close`, {
+    method: "POST",
+  }));
+  assert.equal(closed.batch.status, "COMPLETED");
+  assert.equal(closed.summary.sourceCount, 2);
+  assert.equal(closed.summary.documentCount, 3);
+  assert.equal(closed.summary.readyCount, 2);
+  assert.equal(closed.summary.reviewRequiredCount, 1);
+  assert.equal(closed.summary.confirmedLinks, 0);
+  assert.equal(closed.summary.openConflicts, 7);
+  const documents = await json(await fetch(`${baseUrl}/api/batches/${batchId}/documents`));
+  assert.equal(documents.batchStatus, "COMPLETED");
+  const reviewed = documents.documents.find((document) => document.externalDocumentId === "TST-001");
+  assert.equal(reviewed.status, "REVIEW_REQUIRED");
+  assert.equal(reviewed.sources.length, 2);
+  assert.equal(reviewed.conflicts.length, 7);
+  assert.ok(reviewed.conflicts.some((conflict) => conflict.fieldName === "amountTtc"));
+
   const pool = new Pool();
   try {
     const stored = await pool.query(
@@ -122,6 +140,13 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
       [batchId],
     );
     assert.equal(bankStored.rows[0]?.lines, 3);
+    const consolidated = await pool.query(
+      `SELECT count(*)::int AS documents,
+              count(*) FILTER (WHERE status = 'REVIEW_REQUIRED')::int AS reviews
+         FROM accounting_documents WHERE batch_id = $1`,
+      [batchId],
+    );
+    assert.deepEqual(consolidated.rows[0], { documents: 3, reviews: 1 });
   } finally {
     await pool.end();
   }

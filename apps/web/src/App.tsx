@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { z } from "zod";
 import { BankStatements } from "./BankStatements";
+import { Documents } from "./Documents";
 
 const batchSchema = z.object({
   id: z.string().uuid(),
@@ -191,7 +192,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
     <section aria-labelledby="sources-title" className="panel">
       <h2 id="sources-title">Fichiers du lot : {batch.name ?? batch.id}</h2>
       <p>Sélectionnez plusieurs documents en une fois. Les PDF texte sont lus directement, les scans et JPG passent par OCR, et les XLSX sont lus ligne par ligne.</p>
-      <form onSubmit={(event) => void upload(event)}>
+      {batch.status === "OPEN" ? <form onSubmit={(event) => void upload(event)}>
         <label htmlFor="source-file">Ajouter des PDF, JPG ou XLSX (15 Mo maximum par fichier)</label>
         <div className="form-row">
           <input
@@ -213,7 +214,7 @@ function BatchDetails({ batch }: { batch: Batch }) {
               : `Envoyer${files.length > 1 ? ` ${files.length} fichiers` : ""}`}
           </button>
         </div>
-      </form>
+      </form> : <p>Ce lot est fermé : aucun nouveau document ne peut être ajouté.</p>}
       <p className="meta">{sources.length} document(s) enregistrés dans ce lot.</p>
       {uploadProgress && !uploading && (
         <p>{uploadProgress.completed}/{uploadProgress.total} envoi(s) terminé(s).</p>
@@ -441,7 +442,17 @@ export function App() {
       {selectedBatch && (
         <>
           <BatchDetails key={selectedBatch.id} batch={selectedBatch} />
-          <BankStatements key={`bank-${selectedBatch.id}`} batchId={selectedBatch.id} />
+          <BankStatements
+            key={`bank-${selectedBatch.id}`}
+            batchId={selectedBatch.id}
+            batchStatus={selectedBatch.status}
+          />
+          <Documents
+            key={`documents-${selectedBatch.id}`}
+            batchId={selectedBatch.id}
+            batchStatus={selectedBatch.status}
+            onCompleted={loadBatches}
+          />
         </>
       )}
     </main>

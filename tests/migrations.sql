@@ -8,8 +8,8 @@ DECLARE
   empty_success_rejected boolean := false;
   missing_reason_rejected boolean := false;
 BEGIN
-  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 8) <> 8 THEN
-    RAISE EXCEPTION 'Migrations 1 à 8 attendues';
+  IF (SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 9) <> 9 THEN
+    RAISE EXCEPTION 'Migrations 1 à 9 attendues';
   END IF;
 
   INSERT INTO batches (id) VALUES (test_batch);
@@ -100,6 +100,8 @@ DO $$
 DECLARE
   test_source uuid;
   test_extraction uuid;
+  test_record uuid := gen_random_uuid();
+  test_document uuid := gen_random_uuid();
 BEGIN
   SELECT id INTO test_source FROM source_files WHERE content_sha256 = repeat('c', 64);
   INSERT INTO source_extractions (
@@ -111,10 +113,31 @@ BEGIN
   INSERT INTO source_tabular_records (
     id, source_id, extraction_id, row_number, external_document_id, status, fields
   ) VALUES (
-    gen_random_uuid(), test_source, test_extraction, 2, 'TST-001', 'COMPLETE', '{}'::jsonb
+    test_record, test_source, test_extraction, 2, 'TST-001', 'COMPLETE', '{}'::jsonb
   );
   IF (SELECT count(*) FROM source_tabular_records WHERE source_id = test_source) <> 1 THEN
     RAISE EXCEPTION 'Ligne XLSX non persistée';
+  END IF;
+
+  INSERT INTO accounting_documents (
+    id, batch_id, consolidation_version, external_document_id, kind, status,
+    invoice_number, supplier_name, issued_on, amount_ht, vat_amount, amount_ttc
+  ) SELECT test_document, batch_id, 'test-v1', 'TST-001', 'INVOICE', 'READY',
+           'FT-001', 'FOURNISSEUR TEST', DATE '2026-04-01', 1000.00, 200.00, 1200.00
+      FROM source_files WHERE id = test_source;
+  INSERT INTO accounting_document_sources (
+    id, document_id, source_id, tabular_record_id, relation_status
+  ) VALUES (
+    gen_random_uuid(), test_document, test_source, test_record, 'PRIMARY'
+  );
+  INSERT INTO accounting_document_conflicts (
+    id, batch_id, document_id, tabular_record_id, candidate_source_id,
+    field_name, document_value, tabular_value, reason
+  ) SELECT gen_random_uuid(), batch_id, test_document, test_record, test_source,
+           'amountTtc', '1200.00', '1210.00', 'VALUE_MISMATCH'
+      FROM source_files WHERE id = test_source;
+  IF (SELECT amount_ttc FROM accounting_documents WHERE id = test_document) <> 1200.00 THEN
+    RAISE EXCEPTION 'Montant numeric de la pièce métier invalide';
   END IF;
 END $$;
 

@@ -59,7 +59,7 @@ async function readJson(response: Response): Promise<unknown> {
   return body;
 }
 
-export function BankStatements({ batchId }: { batchId: string }) {
+export function BankStatements({ batchId, batchStatus }: { batchId: string; batchStatus: string }) {
   const [statements, setStatements] = useState<Statement[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -100,7 +100,7 @@ export function BankStatements({ batchId }: { batchId: string }) {
     <section aria-labelledby="bank-title" className="panel">
       <h2 id="bank-title">Relevés bancaires</h2>
       <p>Importez le CSV original. Les montants restent exacts en MAD et chaque ligne conserve ses valeurs brutes.</p>
-      <form onSubmit={(event) => void upload(event)}>
+      {batchStatus === "OPEN" ? <form onSubmit={(event) => void upload(event)}>
         <label htmlFor="bank-file">Ajouter un relevé CSV (2 Mo maximum)</label>
         <div className="form-row">
           <input
@@ -114,7 +114,7 @@ export function BankStatements({ batchId }: { batchId: string }) {
             {uploading ? "Import…" : "Importer"}
           </button>
         </div>
-      </form>
+      </form> : <p>Le lot est fermé : aucun nouveau relevé ne peut être ajouté.</p>}
       {error && <p role="alert" className="error">{error}</p>}
       {statements.length === 0 ? (
         <p>Aucun relevé dans ce lot.</p>

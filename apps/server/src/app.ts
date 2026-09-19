@@ -5,6 +5,7 @@ import type { Queue } from "bullmq";
 import type { Pool } from "pg";
 import { z } from "zod";
 import { registerBankStatementRoutes } from "./bank-statements.js";
+import { registerDocumentRoutes } from "./documents.js";
 import type { SourceJob } from "./queue.js";
 import { registerSourceRoutes } from "./sources.js";
 
@@ -61,5 +62,6 @@ export function buildApp(pool: Pool, queue: Queue<SourceJob>, sourceDir: string)
 
   registerSourceRoutes(app, pool, queue, sourceDir);
   registerBankStatementRoutes(app, pool);
+  registerDocumentRoutes(app, pool);
   return app;
 }
