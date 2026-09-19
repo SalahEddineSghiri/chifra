@@ -144,3 +144,24 @@ test("sans libellé TVA reconnu, aucun montant ni taux n'est attribué", () => {
   assert.equal(result.fields.printedVatRate.value, null);
   assert.equal(result.fields.amountTtc.value, "9360.00");
 });
+
+test("les libellés anglais conservent les valeurs observées", () => {
+  const result = extractInvoiceObservations([segment([
+    "SUPPLIER EXAMPLE",
+    "ICE 005678901000091",
+    "INVOICE N EN-2026-0001",
+    "Date 2026-01-05",
+    "ICE customer 001987654000073",
+    "Total excl tax 7800.00",
+    "VAT 20% 1560.00",
+    "Total incl tax 9360.00",
+  ].join("\n"))]);
+
+  assert.equal(result.status, "COMPLETE");
+  assert.equal(result.fields.supplierName.value, "SUPPLIER EXAMPLE");
+  assert.equal(result.fields.invoiceNumber.value, "EN-2026-0001");
+  assert.equal(result.fields.customerIce.value, "001987654000073");
+  assert.equal(result.fields.amountHt.value, "7800.00");
+  assert.equal(result.fields.vatAmount.value, "1560.00");
+  assert.equal(result.fields.amountTtc.value, "9360.00");
+});

@@ -42,7 +42,7 @@ Le worker traite au plus deux sources en parallèle par défaut, avec une valeur
 
 Les chiffres occidentaux, arabo-indiens et persans ainsi que les séparateurs décimaux et de milliers pris en charge sont normalisés en chaînes décimales. Les composantes de date reconnues sur un chiffre sont complétées par un zéro avec une transformation explicite. La valeur OCR brute et la liste des transformations restent stockées. La reconnaissance des glyphes arabo-indiens dépend de la qualité de l'image et du moteur : une séquence mal reconnue reste absente ou observée telle quelle, sans reconstruction supposée. La reconnaissance d'un texte arabe ne garantit pas l'extraction complète des champs métier : le statut des observations et les candidats permettent de conserver les absences et ambiguïtés.
 
-Le parseur `labels-v3` distingue le montant TVA du taux, y compris lorsque le texte OCR place le taux après le montant (`1560.00 20%`). Les marques Unicode de direction sont ignorées pour reconnaître les libellés ; le texte source reste conservé. Un libellé absent n'est pas reconstitué. Les tests unitaires du parseur ne remplacent pas les tests Docker avec Tesseract réel.
+Le parseur `labels-v4` reconnaît les libellés comptables couverts en français, anglais et arabe. Il distingue le montant TVA du taux, y compris lorsque le texte OCR place le taux après le montant (`1560.00 20%`). Les marques Unicode de direction sont ignorées pour reconnaître les libellés ; le texte source reste conservé. Un libellé absent n'est pas reconstitué. L’OCR arabe reste partiel sur la fixture actuelle : le numéro et la TVA ne sont pas attribués lorsque leurs libellés sont mal reconnus ou absents. Les tests unitaires du parseur ne remplacent pas les tests Docker avec Tesseract réel.
 
 ## Données et référentiels fournis
 
@@ -75,7 +75,7 @@ docker compose -f compose.test.yaml build
 docker compose -f compose.test.yaml run --rm e2e_tests
 ```
 
-La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, des PDF scannés français et arabe, des JPG français, arabe, mixte, ambigu et illisible, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Les résultats OCR sont comparés au texte et aux champs attendus des fixtures synthétiques. Le test final charge un JPG mixte par le Nginx du service web et vérifie l’API, le worker, Unicode, les valeurs brutes et normalisées et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
+La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un PDF texte, des PDF scannés français et arabe, des JPG français, anglais, arabe, mixte, ambigu et illisible, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. La fixture anglaise est rasterisée pendant le test avant de passer par l’API et le worker. Les cas arabe et mixte vérifient explicitement leur résultat partiel actuel sans compléter les champs absents. Le test final charge un JPG français par le Nginx du service web et vérifie l’API, le worker, les valeurs brutes et normalisées et leur stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
 
 ```sh
 docker compose -f compose.test.yaml down -v

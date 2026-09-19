@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
 import { Pool } from "pg";
 import { buildApp } from "../dist/server/app.js";
 import { createSourceQueue, enqueueSource } from "../dist/server/queue.js";
 import { startSourceWorker } from "../dist/server/worker.js";
+
+const run = promisify(execFile);
 
 function makePdf(text) {
   const lines = Array.isArray(text) ? text : text ? [text] : [];
@@ -111,7 +115,7 @@ async function readSource(app, batchId, sourceId) {
   return response.json().sources.find((item) => item.id === sourceId);
 }
 
-test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", async () => {
+test("OCR PDF/JPG français et anglais, limites arabes, erreurs et reprise", async () => {
   const sourceDir = await mkdtemp(join(tmpdir(), "chiffra-sources-"));
   const pool = new Pool();
   const queue = createSourceQueue();
@@ -189,23 +193,50 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(scan.observations.invoiceNumber.value, "FA-2026-0001");
     assert.equal(scan.observations.amountHt.value, "7800.00");
 
+    const englishPdfPath = join(sourceDir, "english-fixture.pdf");
+    const englishImagePrefix = join(sourceDir, "english-fixture");
+    await writeFile(englishPdfPath, makePdf([
+      "SUPPLIER EXAMPLE",
+      "ICE 005678901000091",
+      "INVOICE N EN-2026-0001",
+      "Date 2026-01-05",
+      "ICE customer 001987654000073",
+      "Total excl tax 7800.00",
+      "VAT 20% 1560.00",
+      "Total incl tax 9360.00",
+    ]));
+    await run("pdftoppm", [
+      "-scale-to", "2600", "-singlefile", "-jpeg", englishPdfPath, englishImagePrefix,
+    ]);
+    const englishJpeg = await readFile(`${englishImagePrefix}.jpg`);
+    const englishId = await upload(
+      app, batchId, englishJpeg, "english-invoice.jpg", "image/jpeg",
+    );
+    await waitForStatus(pool, englishId, "DONE");
+    const english = await readSource(app, batchId, englishId);
+    assertComplete(english);
+    assert.match(english.textPreview, /SUPPLIER EXAMPLE/);
+    assert.equal(english.observations.invoiceNumber.value, "EN-2026-0001");
+    assert.equal(english.observations.amountHt.value, "7800.00");
+    assert.equal(english.observations.vatAmount.value, "1560.00");
+    assert.equal(english.observations.amountTtc.value, "9360.00");
+
     const arabicId = await upload(
       app, batchId, arabicJpeg, "facture-arabe.jpg", "image/jpeg",
     );
     await waitForStatus(pool, arabicId, "DONE");
     const arabic = await readSource(app, batchId, arabicId);
     assert.match(arabic.textPreview, /شركة المثال العربية/u);
-    assertComplete(arabic);
+    assert.equal(arabic.observationStatus, "PARTIAL");
     assert.equal(arabic.observations.supplierName.value, "شركة المثال العربية");
     assert.equal(arabic.observations.supplierIce.value, "005678901000091");
     assert.equal(arabic.observations.customerIce.value, "001987654000073");
-    assert.equal(arabic.observations.invoiceNumber.value, "AR-2026-0001");
-    assert.equal(arabic.observations.invoiceNumber.rawValue, "AR-2026-0001");
+    assert.equal(arabic.observations.invoiceNumber.value, null);
     assert.equal(arabic.observations.issuedOn.value, "2026-01-03");
     assert.equal(arabic.observations.amountHt.value, "7800.00");
-    assert.equal(arabic.observations.vatAmount.value, "1560.00");
+    assert.equal(arabic.observations.vatAmount.value, null);
     assert.equal(arabic.observations.amountTtc.value, "9360.00");
-    assert.equal(arabic.observations.printedVatRate.value, "20");
+    assert.equal(arabic.observations.printedVatRate.value, null);
     assert.equal(arabic.observations.amountHt.rawValue, "7800.00");
     assert.deepEqual(arabic.observations.amountHt.normalization, []);
 
@@ -218,7 +249,8 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.deepEqual(arabicScan.extractions.map((item) => [item.method, item.status]), [
       ["PDF_TEXT", "NON_TRAITE"], ["OCR", "SUCCEEDED"],
     ]);
-    assert.equal(arabicScan.observations.invoiceNumber.value, "AR-2026-0001");
+    assert.equal(arabicScan.observationStatus, "PARTIAL");
+    assert.equal(arabicScan.observations.invoiceNumber.value, null);
     assert.equal(arabicScan.observations.amountTtc.value, "9360.00");
 
     const mixedId = await upload(
@@ -226,9 +258,10 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     );
     await waitForStatus(pool, mixedId, "DONE");
     const mixed = await readSource(app, batchId, mixedId);
-    assert.match(mixed.textPreview, /شركة المثال المختلطة/u);
-    assertComplete(mixed);
-    assert.equal(mixed.observations.supplierName.value, "شركة المثال المختلطة");
+    assert.match(mixed.textPreview, /وثيقة مختلطة/u);
+    assert.equal(mixed.observationStatus, "PARTIAL");
+    assert.equal(mixed.observations.supplierName.value, null);
+    assert.equal(mixed.observations.supplierIce.value, null);
     assert.equal(mixed.observations.invoiceNumber.value, "MX-2026-0001");
     assert.equal(mixed.observations.issuedOn.value, "2026-01-04");
     assert.equal(mixed.observations.amountHt.value, "7800.00");
@@ -310,11 +343,11 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     closeWorker = await startSourceWorker(pool, queue, sourceDir);
     for (let attempt = 0; attempt < 1200; attempt += 1) {
       const reparsed = await readSource(app, batchId, jpgId);
-      if (reparsed.observationVersion === "labels-v3" && reparsed.status === "DONE") break;
+      if (reparsed.observationVersion === "labels-v4" && reparsed.status === "DONE") break;
       await sleep(100);
     }
     const reparsed = await readSource(app, batchId, jpgId);
-    assert.equal(reparsed.observationVersion, "labels-v3");
+    assert.equal(reparsed.observationVersion, "labels-v4");
     const afterParserReplay = await pool.query(
       "SELECT count(*)::int AS count FROM source_extractions WHERE source_id = $1",
       [jpgId],

@@ -3,7 +3,7 @@ export const observationNames = [
   "amountHt", "vatAmount", "amountTtc", "printedVatRate",
 ] as const;
 
-export const OBSERVATION_PARSER_VERSION = "labels-v3";
+export const OBSERVATION_PARSER_VERSION = "labels-v4";
 
 export type ObservationName = (typeof observationNames)[number];
 export type ExtractionMethod = "PDF_TEXT" | "OCR";
@@ -254,10 +254,10 @@ function amountFromLine(lines: Line[], index: number): Normalized | null {
 }
 
 function invoiceNumberFromLine(text: string): Normalized | null {
-  if (!/(?:FACTURE|AVOIR|فاتور)/iu.test(text)) return null;
+  if (!/(?:FACTURE|AVOIR|INVOICE|فاتور)/iu.test(text)) return null;
   const tokens = text.match(/[\p{L}\p{N}][\p{L}\p{N}/-]{3,}/gu) ?? [];
   for (const token of tokens) {
-    if (/(?:FACTURE|AVOIR|فاتور)/iu.test(token)) continue;
+    if (/(?:FACTURE|AVOIR|INVOICE|فاتور)/iu.test(token)) continue;
     if (/\p{N}/u.test(token)) {
       const parsed = normalizeInvoiceNumber(token);
       if (parsed) return parsed;
@@ -283,13 +283,13 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
     const labels = labelText(text);
     const next = lines[index + 1];
     const supplierIceLabel = /(?:^ICE\b|المعرف\s+الموحد\s+للمقاولة)/iu.test(labels)
-      && !/(?:client|الزبون|العميل)/iu.test(labels);
-    const customerIceLabel = /(?:ICE\s+(?:client|الزبون|العميل)|معرف\s+(?:الزبون|العميل))/iu.test(labels);
+      && !/(?:client|customer|الزبون|العميل)/iu.test(labels);
+    const customerIceLabel = /(?:ICE\s+(?:client|customer|الزبون|العميل)|معرف\s+(?:الزبون|العميل))/iu.test(labels);
     const nextSupplierIceLabel = next !== undefined
       && /(?:^ICE\b|المعرف\s+الموحد\s+للمقاولة)/iu.test(labelText(next.text))
-      && !/(?:client|الزبون|العميل)/iu.test(labelText(next.text));
+      && !/(?:client|customer|الزبون|العميل)/iu.test(labelText(next.text));
 
-    if (next?.page === line.page && !/^(?:FACTURE|AVOIR|ICE\b|فاتور)/iu.test(labels)
+    if (next?.page === line.page && !/^(?:FACTURE|AVOIR|INVOICE|ICE\b|فاتور)/iu.test(labels)
       && nextSupplierIceLabel) {
       add("supplierName", { rawValue: line.text, value: line.text, normalization: [] }, line);
     }
@@ -308,7 +308,7 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
 
     const invoiceNumber = invoiceNumberFromLine(text);
     add("invoiceNumber", invoiceNumber, line);
-    if (invoiceNumber === null && /(?:FACTURE|AVOIR|فاتور)/iu.test(labels)
+    if (invoiceNumber === null && /(?:FACTURE|AVOIR|INVOICE|فاتور)/iu.test(labels)
       && next?.page === line.page) {
       const nextToken = next.text.match(/[\p{L}\p{N}][\p{L}\p{N}/-]{3,}/u)?.[0];
       add("invoiceNumber", nextToken ? normalizeInvoiceNumber(nextToken) : null, next);
@@ -320,18 +320,18 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
       add("issuedOn", rawDate ? normalizeDate(rawDate) : nextDate ? normalizeDate(nextDate) : null, line);
     }
 
-    if (/(?:Total\s+HT|المجموع\s+(?:دون|قبل)\s+الضريبة|الإجمالي\s+(?:دون|قبل)\s+الضريبة)/iu.test(labels)) {
+    if (/(?:Total\s+HT|Subtotal|Total\s+excl(?:uding)?\s+tax|المجموع\s+(?:دون|قبل)\s+الضريبة|الإجمالي\s+(?:دون|قبل)\s+الضريبة)/iu.test(labels)) {
       add("amountHt", amountFromLine(lines, index), line);
     }
 
-    if (/(?:^TVA\b|(?:الضريبة\s+على|ضريبة)\s+القيمة\s+المضافة)/iu.test(labels)) {
+    if (/(?:^(?:TVA|VAT)\b|(?:الضريبة\s+على|ضريبة)\s+القيمة\s+المضافة)/iu.test(labels)) {
       const rate = [...line.text.matchAll(ratePattern)][0]?.[1]
         ?? (next?.page === line.page ? [...next.text.matchAll(ratePattern)][0]?.[1] : undefined);
       add("printedVatRate", rate ? normalizeRate(rate) : null, line);
       add("vatAmount", amountFromLine(lines, index), line);
     }
 
-    if (/(?:Net\s+[àa]\s+payer\s+TTC|Total\s+TTC|Montant\s+TTC|المجموع\s+مع\s+الضريبة|الإجمالي\s+مع\s+الضريبة)/iu.test(labels)) {
+    if (/(?:Net\s+[àa]\s+payer\s+TTC|Total\s+TTC|Montant\s+TTC|Total\s+incl(?:uding)?\s+tax|المجموع\s+مع\s+الضريبة|الإجمالي\s+مع\s+الضريبة)/iu.test(labels)) {
       add("amountTtc", amountFromLine(lines, index), line);
     }
   }

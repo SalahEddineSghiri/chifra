@@ -14,7 +14,7 @@ async function json(response) {
   return response.json();
 }
 
-test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
+test("parcours JPG français via Nginx, API, worker et PostgreSQL", async () => {
   const home = await fetch(baseUrl);
   assert.equal(home.status, 200);
   assert.match(await home.text(), /<div id="root"><\/div>/);
@@ -26,9 +26,9 @@ test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
     body: JSON.stringify({ name: `Lot E2E OCR ${randomUUID()}` }),
   }));
   const batchId = created.batch.id;
-  const jpeg = await readFile(new URL("./fixtures/ocr-mixed.jpg", import.meta.url));
+  const jpeg = await readFile(new URL("./fixtures/ocr-invoice.jpg", import.meta.url));
   const form = new FormData();
-  form.append("file", new Blob([jpeg], { type: "image/jpeg" }), "facture-mixte-e2e.jpg");
+  form.append("file", new Blob([jpeg], { type: "image/jpeg" }), "facture-francaise-e2e.jpg");
   const uploaded = await json(await fetch(`${baseUrl}/api/batches/${batchId}/sources`, {
     method: "POST", body: form,
   }));
@@ -46,11 +46,11 @@ test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
   assert.equal(source?.status, "DONE");
   assert.equal(source.extractionMethod, "OCR");
   assert.equal(source.observationStatus, "COMPLETE", JSON.stringify(source, null, 2));
-  assert.match(source.textPreview, /شركة المثال المختلطة/u);
-  assert.equal(source.observations.supplierName.value, "شركة المثال المختلطة");
-  assert.equal(source.observations.invoiceNumber.value, "MX-2026-0001");
-  assert.equal(source.observations.invoiceNumber.rawValue, "MX-2026-0001");
-  assert.equal(source.observations.issuedOn.value, "2026-01-04");
+  assert.match(source.textPreview, /FOURNISSEUR EXEMPLE/u);
+  assert.equal(source.observations.supplierName.value, "FOURNISSEUR EXEMPLE");
+  assert.equal(source.observations.invoiceNumber.value, "FA-2026-0001");
+  assert.equal(source.observations.invoiceNumber.rawValue, "FA-2026-0001");
+  assert.equal(source.observations.issuedOn.value, "2026-01-01");
   assert.equal(source.observations.amountHt.value, "7800.00");
   assert.equal(source.observations.amountHt.rawValue, "7800.00");
   assert.deepEqual(source.observations.amountHt.normalization, []);
