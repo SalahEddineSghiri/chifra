@@ -48,7 +48,8 @@ export async function replayAuditProof(pool: Pool, proofId: string, reference: R
     throw new Error("Les référentiels disponibles diffèrent de ceux de la preuve.");
   }
   const input = inputSchema.parse(proof.input_payload);
-  const replayed = auditDocuments(input.documents, reference);
+  const engineVersion = z.enum(["audit-v1", "audit-v2"]).parse(proof.engine_version);
+  const replayed = auditDocuments(input.documents, reference, engineVersion);
   return {
     proofId,
     engineVersion: proof.engine_version,

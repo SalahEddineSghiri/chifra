@@ -1,9 +1,10 @@
 import { Decimal } from "decimal.js";
 import type { ReferenceData, SupplierReference } from "./reference-data.js";
 
-export const AUDIT_ENGINE_VERSION = "audit-v1";
+export const AUDIT_ENGINE_VERSION = "audit-v2";
 export const AUDIT_RULES_VERSION = "fiscal-rules-v1";
 export const AUDIT_ROUNDING_CONVENTION = "ROUND_HALF_UP_2_DECIMALS";
+export type AuditEngineVersion = "audit-v1" | "audit-v2";
 
 export type AuditDocument = {
   id: string;
@@ -116,7 +117,11 @@ function supplierFor(
   return matches.length === 1 && matches[0] ? { supplier: matches[0], matchBy: "NAME" } : null;
 }
 
-function baseChecks(document: AuditDocument, reference: ReferenceData): DocumentAudit {
+function baseChecks(
+  document: AuditDocument,
+  reference: ReferenceData,
+  engineVersion: AuditEngineVersion,
+): DocumentAudit {
   const checks: AuditCheck[] = [];
   const supplierMatch = supplierFor(document, reference);
   const amountHt = decimal(document.amountHt);
@@ -135,10 +140,12 @@ function baseChecks(document: AuditDocument, reference: ReferenceData): Document
   const missingFields = Object.entries(required)
     .filter(([, value]) => value === null || value.trim().length === 0)
     .map(([name]) => name);
+  const missingStatus = engineVersion === "audit-v1" ? "ANOMALY" : "NOT_EVALUABLE";
   checks.push(check(
-    "MANDATORY_FIELDS", "MANDATORY", missingFields.length === 0 ? "PASS" : "ANOMALY",
+    "MANDATORY_FIELDS", "MANDATORY", missingFields.length === 0 ? "PASS" : missingStatus,
     missingFields.length === 0 ? "Mentions obligatoires présentes."
-      : "Une ou plusieurs mentions obligatoires sont absentes.",
+      : engineVersion === "audit-v1" ? "Une ou plusieurs mentions obligatoires sont absentes."
+        : "Une ou plusieurs mentions obligatoires ne sont pas observées dans les sources disponibles.",
     { missingFields },
   ));
 
@@ -322,8 +329,12 @@ function daysApart(left: string, right: string): number {
     / 86_400_000));
 }
 
-export function auditDocuments(documents: AuditDocument[], reference: ReferenceData): AuditResult {
-  const results = documents.map((document) => baseChecks(document, reference));
+export function auditDocuments(
+  documents: AuditDocument[],
+  reference: ReferenceData,
+  engineVersion: AuditEngineVersion = AUDIT_ENGINE_VERSION,
+): AuditResult {
+  const results = documents.map((document) => baseChecks(document, reference, engineVersion));
   for (let leftIndex = 0; leftIndex < documents.length; leftIndex += 1) {
     const left = documents[leftIndex];
     const leftResult = results[leftIndex];
@@ -369,7 +380,7 @@ export function auditDocuments(documents: AuditDocument[], reference: ReferenceD
     anomaliesByFamily[anomaly.family] = (anomaliesByFamily[anomaly.family] ?? 0) + 1;
   }
   return {
-    engineVersion: AUDIT_ENGINE_VERSION,
+    engineVersion,
     rulesVersion: AUDIT_RULES_VERSION,
     referenceVersion: reference.version,
     summary: {

@@ -94,7 +94,7 @@ test("audit asynchrone, référentiels réels, preuve et idempotence", async () 
       [response.audit.id],
     );
     assert.deepEqual(proof.rows[0], {
-      engine_version: "audit-v1",
+      engine_version: "audit-v2",
       rules_version: "fiscal-rules-v1",
       reference_version: "chiffra-reference-v1",
       input_documents: 2,
@@ -102,7 +102,7 @@ test("audit asynchrone, référentiels réels, preuve et idempotence", async () 
     });
     assert.deepEqual(await replayAuditProof(pool, response.audit.id, loadReferenceData()), {
       proofId: response.audit.id,
-      engineVersion: "audit-v1",
+      engineVersion: "audit-v2",
       rulesVersion: "fiscal-rules-v1",
       referenceVersion: "chiffra-reference-v1",
       verified: true,

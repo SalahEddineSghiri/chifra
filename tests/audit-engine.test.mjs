@@ -100,12 +100,29 @@ test("les champs absents restent non évaluables ou en anomalie sans zéro suppo
   const result = auditDocuments([document({
     supplierIce: null, amountHt: null, vatAmount: null, amountTtc: null,
   })], reference);
-  assert.equal(byCode(result, "MANDATORY_FIELDS").status, "ANOMALY");
+  assert.equal(byCode(result, "MANDATORY_FIELDS").status, "NOT_EVALUABLE");
   assert.deepEqual(byCode(result, "MANDATORY_FIELDS").missingFields.sort(), [
     "amountHt", "amountTtc", "supplierIce", "vatAmount",
   ]);
   assert.equal(byCode(result, "INTERNAL_TTC").status, "NOT_EVALUABLE");
   assert.equal(byCode(result, "INTERNAL_TTC").observed, null);
+});
+
+test("un ICE client non fourni par la source ne devient pas une absence affirmée", () => {
+  const result = auditDocuments([document({ customerIce: null })], reference);
+  const mandatory = byCode(result, "MANDATORY_FIELDS");
+  assert.equal(mandatory.status, "NOT_EVALUABLE");
+  assert.deepEqual(mandatory.missingFields, ["customerIce"]);
+  assert.equal(result.documents[0].status, "NOT_EVALUABLE");
+  assert.equal(result.summary.anomalousDocumentCount, 0);
+});
+
+test("le moteur v1 reste rejouable avec son ancienne décision", () => {
+  const result = auditDocuments([document({ customerIce: null })], reference, "audit-v1");
+  const mandatory = byCode(result, "MANDATORY_FIELDS");
+  assert.equal(result.engineVersion, "audit-v1");
+  assert.equal(mandatory.status, "ANOMALY");
+  assert.equal(mandatory.message, "Une ou plusieurs mentions obligatoires sont absentes.");
 });
 
 test("un doublon probable utilise une fenêtre strictement inférieure à sept jours", () => {

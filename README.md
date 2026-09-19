@@ -78,7 +78,7 @@ Le résultat contient `"verified":true` lorsque la sortie rejouée est identique
 
 ## Contrôles comptables et fiscaux EX-04
 
-Après consolidation, le bouton « Lancer les contrôles » crée un travail BullMQ. Le worker exécute le moteur pur `audit-v1` avec les référentiels versionnés de `reference-data/v1`. L'API reste disponible pendant le traitement. Une demande répétée ou simultanée réutilise le même travail et la même preuve ; un travail technique en échec peut être relancé sans dupliquer les résultats.
+Après consolidation, le bouton « Lancer les contrôles » crée un travail BullMQ. Le worker exécute le moteur pur `audit-v2` avec les référentiels versionnés de `reference-data/v1`. L'API reste disponible pendant le traitement. Une demande répétée ou simultanée réutilise le même travail et la même preuve ; un travail technique en échec peut être relancé sans dupliquer les résultats. Le rejeu conserve la compatibilité avec les preuves `audit-v1`.
 
 Les contrôles distinguent la cohérence interne HT, taux imprimé, TVA et TTC de la conformité au taux fournisseur fourni. Ils couvrent aussi les mentions obligatoires, la période du 1er janvier au 30 juin 2026, les fournisseurs inconnus, le plan comptable, les montants strictement supérieurs à dix fois la moyenne fournisseur, les doublons exacts ou probables et les conflits de sources. Les valeurs observées restent séparées des valeurs de référence. Un taux ou un montant absent rend uniquement le contrôle concerné non évaluable ; aucune valeur n'est complétée.
 
