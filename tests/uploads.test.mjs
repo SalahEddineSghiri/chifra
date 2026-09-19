@@ -74,7 +74,7 @@ function multipartFile(content, filename, mediaType) {
 }
 
 async function waitForStatus(pool, sourceId, expected) {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
+  for (let attempt = 0; attempt < 1200; attempt += 1) {
     const result = await pool.query("SELECT status FROM source_files WHERE id = $1", [sourceId]);
     const status = result.rows[0]?.status;
     if (status === expected) return;
@@ -161,7 +161,7 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(jpg.observations.amountTtc.rawValue, "9360.00");
     assert.equal(jpg.observations.amountTtc.page, 1);
     assert.equal(jpg.observations.amountTtc.extractionMethod, "OCR");
-    assert.equal(jpg.observations.amountTtc.extractionVersion, "tesseract-5-fra-ara-eng-v2");
+    assert.equal(jpg.observations.amountTtc.extractionVersion, "tesseract-5-best-e12c65a91594-fra-ara-eng-psm6-oem1-v3");
     assert.deepEqual(jpg.observations.amountTtc.normalization, []);
     assert.equal(jpg.observations.supplierIce.value, "005678901000091");
     assert.equal(jpg.observations.issuedOn.value, "2026-01-01");
@@ -308,7 +308,7 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
       [jpgId],
     );
     closeWorker = await startSourceWorker(pool, queue, sourceDir);
-    for (let attempt = 0; attempt < 300; attempt += 1) {
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
       const reparsed = await readSource(app, batchId, jpgId);
       if (reparsed.observationVersion === "labels-v3" && reparsed.status === "DONE") break;
       await sleep(100);
@@ -323,17 +323,52 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
 
     await closeWorker();
     await pool.query(
+      "UPDATE source_extractions SET method_version = 'legacy-ocr-test' WHERE source_id = $1 AND method = 'OCR'",
+      [jpgId],
+    );
+    closeWorker = await startSourceWorker(pool, queue, sourceDir);
+    await waitForStatus(pool, jpgId, "DONE");
+    const upgraded = await readSource(app, batchId, jpgId);
+    assertComplete(upgraded);
+    assert.equal(upgraded.observations.amountTtc.extractionVersion,
+      "tesseract-5-best-e12c65a91594-fra-ara-eng-psm6-oem1-v3");
+    const readUpgradeHistory = () => pool.query(
+      `SELECT se.method_version,
+              (SELECT count(*)::int FROM source_observation_inputs soi
+                WHERE soi.extraction_id = se.id) AS inputs
+         FROM source_extractions se WHERE se.source_id = $1 ORDER BY se.method_version`,
+      [jpgId],
+    );
+    const upgradeHistory = await readUpgradeHistory();
+    assert.deepEqual(upgradeHistory.rows, [
+      { method_version: "legacy-ocr-test", inputs: 0 },
+      { method_version: "tesseract-5-best-e12c65a91594-fra-ara-eng-psm6-oem1-v3", inputs: 1 },
+    ]);
+    await closeWorker();
+    closeWorker = await startSourceWorker(pool, queue, sourceDir);
+    await enqueueSource(queue, jpgId);
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      if (!await queue.getJob(jpgId)) break;
+      await sleep(100);
+    }
+    assert.equal(await queue.getJob(jpgId), undefined);
+    await closeWorker();
+    assert.deepEqual((await readUpgradeHistory()).rows, upgradeHistory.rows);
+    const nativeAfterUpgrade = await readSource(app, batchId, nativeId);
+    assert.deepEqual(nativeAfterUpgrade.extractions, native.extractions);
+
+    await pool.query(
       `UPDATE source_extractions SET method_version = 'tesseract-5-fra-eng-v1'
         WHERE source_id = $1 AND method = 'OCR'`,
       [blankId],
     );
     closeWorker = await startSourceWorker(pool, queue, sourceDir);
     let upgradedBlank;
-    for (let attempt = 0; attempt < 300; attempt += 1) {
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
       upgradedBlank = await pool.query(
         `SELECT sf.status,
                 count(*) FILTER (
-                  WHERE se.method = 'OCR' AND se.method_version = 'tesseract-5-fra-ara-eng-v2'
+                  WHERE se.method = 'OCR' AND se.method_version = 'tesseract-5-best-e12c65a91594-fra-ara-eng-psm6-oem1-v3'
                 )::int AS current_ocr
            FROM source_files sf
            LEFT JOIN source_extractions se ON se.source_id = sf.id

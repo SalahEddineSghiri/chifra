@@ -34,7 +34,7 @@ test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
   }));
 
   let source;
-  for (let attempt = 0; attempt < 300; attempt += 1) {
+  for (let attempt = 0; attempt < 1200; attempt += 1) {
     const listed = await json(await fetch(`${baseUrl}/api/batches/${batchId}/sources`));
     source = listed.sources.find((item) => item.id === uploaded.source.id);
     if (source?.status === "DONE") break;
@@ -73,7 +73,7 @@ test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
     assert.equal(stored.rows[0]?.media_type, "image/jpeg");
     assert.equal(stored.rows[0]?.status, "DONE");
     assert.equal(stored.rows[0]?.method, "OCR");
-    assert.equal(stored.rows[0]?.method_version, "tesseract-5-fra-ara-eng-v2");
+    assert.equal(stored.rows[0]?.method_version, "tesseract-5-best-e12c65a91594-fra-ara-eng-psm6-oem1-v3");
     assert.equal(stored.rows[0]?.page_number, 1);
     assert.equal(stored.rows[0]?.confidence_percent, null);
     assert.equal(stored.rows[0]?.observation_inputs, 1);

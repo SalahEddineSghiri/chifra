@@ -1,7 +1,17 @@
-FROM node:24-alpine AS build
+FROM node:24-alpine AS ocr_base
+
+RUN apk add --no-cache poppler-utils tesseract-ocr
+ENV TESSDATA_PREFIX=/opt/chiffra/tessdata
+ENV OMP_THREAD_LIMIT=1
+ADD https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/ara.traineddata /opt/chiffra/tessdata/ara.traineddata
+ADD https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/fra.traineddata /opt/chiffra/tessdata/fra.traineddata
+ADD https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/eng.traineddata /opt/chiffra/tessdata/eng.traineddata
+ADD https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/LICENSE /opt/chiffra/tessdata/LICENSE
+RUN chmod 644 /opt/chiffra/tessdata/* && tesseract --list-langs
+
+FROM ocr_base AS build
 
 WORKDIR /app
-RUN apk add --no-cache poppler-utils tesseract-ocr tesseract-ocr-data-ara tesseract-ocr-data-eng tesseract-ocr-data-fra
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.server.json ./
@@ -13,11 +23,10 @@ COPY tests/e2e.test.mjs ./tests/e2e.test.mjs
 COPY tests/fixtures ./tests/fixtures
 RUN npm run typecheck:server && npm run build:server
 
-FROM node:24-alpine
+FROM ocr_base
 
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache poppler-utils tesseract-ocr tesseract-ocr-data-ara tesseract-ocr-data-eng tesseract-ocr-data-fra
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist/server ./dist/server

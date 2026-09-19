@@ -137,8 +137,14 @@ export async function startSourceWorker(pool: Pool, queue: Queue<SourceJob>, sou
         AND NOT EXISTS (
           SELECT 1 FROM source_observations so
           WHERE so.source_id = sf.id AND so.parser_version = $2
+            AND NOT EXISTS (
+              SELECT 1 FROM source_observation_inputs soi
+              JOIN source_extractions se ON se.id = soi.extraction_id
+              WHERE soi.source_id = sf.id AND se.method = 'OCR'
+                AND se.method_version <> $3
+            )
         )`,
-    [SUPPORTED_MEDIA, OBSERVATION_PARSER_VERSION],
+    [SUPPORTED_MEDIA, OBSERVATION_PARSER_VERSION, OCR_VERSION],
   );
   const worker = new Worker<SourceJob>(
     SOURCE_QUEUE,

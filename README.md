@@ -32,6 +32,10 @@ La confiance reste `NULL`, car le parcours actuel ne collecte pas une mesure suf
 
 ## PDF et JPG
 
+L’image serveur embarque les modèles officiels `tessdata_best` français, arabe et anglais, figés à la révision `e12c65a915945e4c28e237a9b52bc4a8f39a0cec`, avec leur licence Apache 2.0. Le téléchargement se fait à la construction Docker ; aucun modèle n’est téléchargé au traitement. Le moteur LSTM (`--oem 1`) utilise la segmentation `--psm 6`. Ces modèles privilégient la précision avec un coût CPU supérieur ; chaque processus Tesseract est limité à un thread. Leur précision sur les fixtures arabes et mixtes doit être confirmée par les tests Docker, sans déduire une validation du seul choix de modèle.
+
+Au démarrage, les observations utilisant un ancien modèle OCR sont recalculées. Les extractions précédentes restent conservées et les observations référencent la nouvelle extraction ; une nouvelle reprise avec la même version ne crée pas de doublon.
+
 Dans un lot ouvert, l’interface accepte un PDF ou un JPG de 15 Mo maximum. L’API vérifie le format réel et dédoublonne le contenu dans le lot. Les JPEG sont limités à 40 millions de pixels et 20 000 pixels par côté. Le worker lit d’abord le texte PDF avec Poppler puis applique Tesseract 5 en français, arabe et anglais uniquement aux pages sans texte et aux JPG. Le rendu d’une page PDF est limité à 3 500 pixels par côté. L'interface utilise la direction automatique et Unicode bidi pour rendre lisibles le texte arabe et les contenus mixtes.
 
 Le worker traite au plus deux sources en parallèle par défaut, avec une valeur configurable de 1 à 4. Chaque commande OCR dispose de 60 secondes et le rendu d’une page de 45 secondes. Une erreur technique est retentée trois fois avec attente progressive ; une sortie sans texte exploitable devient `NON_TRAITE`. Une extraction lisible reste `DONE` même si ses champs sont absents, ambigus ou arithmétiquement incohérents. Le parseur relève seulement les valeurs imprimées et ne calcule aucun total attendu ni conformité fiscale.
