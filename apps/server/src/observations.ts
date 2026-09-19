@@ -225,17 +225,6 @@ function provenance(line: Line, normalized: Normalized): ObservationCandidate {
   };
 }
 
-function inlineOrNext(
-  lines: Line[], index: number, inline: string,
-  parse: (value: string) => Normalized | null,
-): Normalized | null {
-  if (inline.trim()) return parse(inline);
-  const current = lines[index];
-  const next = lines[index + 1];
-  if (!current || next?.page !== current.page) return null;
-  return parse(next.text);
-}
-
 function amountFromLine(lines: Line[], index: number): Normalized | null {
   const current = lines[index];
   if (!current) return null;
@@ -245,7 +234,12 @@ function amountFromLine(lines: Line[], index: number): Normalized | null {
   const first = values[0];
   if (first !== undefined) return normalizeAmount(first);
   const next = lines[index + 1];
-  return next?.page === current.page ? normalizeAmount(next.text) : null;
+  if (next?.page !== current.page) return null;
+  const nextValues = [...next.text.matchAll(amountPattern)]
+    .map((match) => match[0]).filter((value): value is string => value !== undefined);
+  return nextValues.length === 1 && nextValues[0] !== undefined
+    ? normalizeAmount(nextValues[0])
+    : null;
 }
 
 function invoiceNumberFromLine(text: string): Normalized | null {
@@ -291,16 +285,27 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
     const ice = icePattern.exec(text)?.[1];
     if (customerIceLabel && ice) add("customerIce", normalizeIdentifier(ice, 15), line);
     else if (supplierIceLabel && ice) add("supplierIce", normalizeIdentifier(ice, 15), line);
+    if (supplierIceLabel && !ice && next?.page === line.page) {
+      const nextIce = icePattern.exec(next.text)?.[1];
+      if (nextIce) add("supplierIce", normalizeIdentifier(nextIce, 15), next);
+    }
     if (customerIceLabel && !ice && next?.page === line.page) {
       const nextIce = icePattern.exec(next.text)?.[1];
       if (nextIce) add("customerIce", normalizeIdentifier(nextIce, 15), next);
     }
 
-    add("invoiceNumber", invoiceNumberFromLine(text), line);
+    const invoiceNumber = invoiceNumberFromLine(text);
+    add("invoiceNumber", invoiceNumber, line);
+    if (invoiceNumber === null && /(?:FACTURE|AVOIR|فاتور)/iu.test(text)
+      && next?.page === line.page) {
+      const nextToken = next.text.match(/[\p{L}\p{N}][\p{L}\p{N}/-]{3,}/u)?.[0];
+      add("invoiceNumber", nextToken ? normalizeInvoiceNumber(nextToken) : null, next);
+    }
 
     if (/(?:^Date(?:\s+(?:de\s+)?facture)?\b|التاريخ)/iu.test(text)) {
       const rawDate = datePattern.exec(text)?.[1];
-      add("issuedOn", rawDate ? normalizeDate(rawDate) : inlineOrNext(lines, index, "", normalizeDate), line);
+      const nextDate = next?.page === line.page ? datePattern.exec(next.text)?.[1] : undefined;
+      add("issuedOn", rawDate ? normalizeDate(rawDate) : nextDate ? normalizeDate(nextDate) : null, line);
     }
 
     if (/(?:Total\s+HT|المجموع\s+(?:دون|قبل)\s+الضريبة|الإجمالي\s+(?:دون|قبل)\s+الضريبة)/iu.test(text)) {
@@ -308,7 +313,11 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
     }
 
     if (/(?:^TVA\b|الضريبة\s+على\s+القيمة\s+المضافة)/iu.test(text)) {
-      const rate = new RegExp(`(${digitSequence}{1,2}(?:[,.٫]${digitSequence}{1,2})?)\\s*[٪%]`, "u").exec(text)?.[1];
+      const ratePattern = new RegExp(
+        `(${digitSequence}{1,2}(?:[,.٫]${digitSequence}{1,2})?)\\s*[٪%]`, "u",
+      );
+      const rate = ratePattern.exec(text)?.[1]
+        ?? (next?.page === line.page ? ratePattern.exec(next.text)?.[1] : undefined);
       add("printedVatRate", rate ? normalizeRate(rate) : null, line);
       add("vatAmount", amountFromLine(lines, index), line);
     }

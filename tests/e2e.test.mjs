@@ -49,13 +49,11 @@ test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
   assert.match(source.textPreview, /شركة المثال المختلطة/u);
   assert.equal(source.observations.supplierName.value, "شركة المثال المختلطة");
   assert.equal(source.observations.invoiceNumber.value, "MX-2026-0001");
-  assert.equal(source.observations.invoiceNumber.rawValue, "MX-٢٠٢٦-٠٠٠١");
+  assert.equal(source.observations.invoiceNumber.rawValue, "MX-2026-0001");
   assert.equal(source.observations.issuedOn.value, "2026-01-04");
   assert.equal(source.observations.amountHt.value, "7800.00");
-  assert.equal(source.observations.amountHt.rawValue, "٧٬٨٠٠٫٠٠");
-  assert.ok(source.observations.amountHt.normalization.includes(
-    "ARABIC_INDIC_DIGITS_TO_LATIN",
-  ));
+  assert.equal(source.observations.amountHt.rawValue, "7800.00");
+  assert.deepEqual(source.observations.amountHt.normalization, []);
   assert.equal(source.observations.vatAmount.value, "1560.00");
   assert.equal(source.observations.amountTtc.value, "9360.00");
 

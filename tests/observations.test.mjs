@@ -41,13 +41,20 @@ test("les montants et la date lus conservent valeur brute, normalisation et prov
 test("les chiffres arabo-indiens sont normalisés explicitement sans perdre la valeur brute", () => {
   const result = extractInvoiceObservations([segment([
     "شركة المثال العربية",
-    "المعرف الموحد للمقاولة ٠٠٥٦٧٨٩٠١٠٠٠٠٩١",
-    "فاتورة رقم AR-٢٠٢٦-٠٠٠١",
-    "التاريخ ٢٠٢٦/٠١/٠٣",
-    "معرف الزبون ٠٠١٩٨٧٦٥٤٠٠٠٠٧٣",
-    "المجموع دون الضريبة ٧٬٨٠٠٫٠٠",
-    "الضريبة على القيمة المضافة ٢٠٪ ١٬٥٦٠٫٠٠",
-    "المجموع مع الضريبة ٩٬٣٦٠٫٠٠",
+    "المعرف الموحد للمقاولة",
+    "٠٠٥٦٧٨٩٠١٠٠٠٠٩١",
+    "فاتورة رقم",
+    "AR-٢٠٢٦-٠٠٠١",
+    "التاريخ",
+    "٢٠٢٦/٠١/٠٣",
+    "معرف الزبون",
+    "٠٠١٩٨٧٦٥٤٠٠٠٠٧٣",
+    "المجموع دون الضريبة",
+    "٧٬٨٠٠٫٠٠",
+    "الضريبة على القيمة المضافة",
+    "٢٠٪ ١٬٥٦٠٫٠٠",
+    "المجموع مع الضريبة",
+    "٩٬٣٦٠٫٠٠",
   ].join("\n"))]);
 
   assert.equal(result.status, "COMPLETE");

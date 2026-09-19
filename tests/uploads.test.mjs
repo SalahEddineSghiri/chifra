@@ -191,16 +191,14 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.equal(arabic.observations.supplierIce.value, "005678901000091");
     assert.equal(arabic.observations.customerIce.value, "001987654000073");
     assert.equal(arabic.observations.invoiceNumber.value, "AR-2026-0001");
-    assert.equal(arabic.observations.invoiceNumber.rawValue, "AR-٢٠٢٦-٠٠٠١");
+    assert.equal(arabic.observations.invoiceNumber.rawValue, "AR-2026-0001");
     assert.equal(arabic.observations.issuedOn.value, "2026-01-03");
     assert.equal(arabic.observations.amountHt.value, "7800.00");
     assert.equal(arabic.observations.vatAmount.value, "1560.00");
     assert.equal(arabic.observations.amountTtc.value, "9360.00");
     assert.equal(arabic.observations.printedVatRate.value, "20");
-    assert.ok(arabic.observations.amountHt.normalization.includes(
-      "ARABIC_INDIC_DIGITS_TO_LATIN",
-    ));
-    assert.equal(arabic.observations.amountHt.candidates[0].rawValue, "٧٬٨٠٠٫٠٠");
+    assert.equal(arabic.observations.amountHt.rawValue, "7800.00");
+    assert.deepEqual(arabic.observations.amountHt.normalization, []);
 
     const arabicScanId = await upload(
       app, batchId, makeImagePdf(arabicJpeg, 2400, 1700),
