@@ -28,6 +28,18 @@ async function waitForReconciliation(batchId) {
   assert.fail("Délai dépassé pendant le rapprochement");
 }
 
+async function waitForAudit(batchId) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    const current = await json(await fetch(`${baseUrl}/api/batches/${batchId}/audit`));
+    if (current.job?.status === "FAILED") {
+      assert.fail(current.job.failureReason ?? "Audit en échec");
+    }
+    if (current.job?.status === "COMPLETED" && current.audit) return current;
+    await sleep(100);
+  }
+  assert.fail("Délai dépassé pendant l'audit");
+}
+
 test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", async () => {
   const home = await fetch(baseUrl);
   assert.equal(home.status, 200);
@@ -193,6 +205,14 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
   );
   assert.equal(repeatedReconciliation.status, 200);
   assert.equal((await repeatedReconciliation.json()).reconciliation.id, matched.reconciliation.id);
+  await json(await fetch(`${baseUrl}/api/batches/${reconciliationBatchId}/audit`, {
+    method: "POST",
+  }));
+  const audited = await waitForAudit(reconciliationBatchId);
+  assert.equal(audited.reference.accountCount, 13);
+  assert.equal(audited.reference.supplierCount, 15);
+  assert.equal(audited.audit.summary.documentCount, 3);
+  assert.ok(audited.audit.documents.every((document) => document.supplierReference === null));
 
   const pool = new Pool();
   try {
@@ -250,6 +270,14 @@ test("parcours OCR, XLSX et relevé CSV via Nginx, API, worker et PostgreSQL", a
       [reconciliationBatchId],
     );
     assert.deepEqual(matchedStored.rows[0], { runs: 1, allocations: 3 });
+    const auditStored = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM audit_runs WHERE batch_id = $1) AS runs,
+         (SELECT count(*)::int FROM document_audit_results dar
+           JOIN audit_runs ar ON ar.id = dar.run_id WHERE ar.batch_id = $1) AS results`,
+      [reconciliationBatchId],
+    );
+    assert.deepEqual(auditStored.rows[0], { runs: 1, results: 3 });
   } finally {
     await pool.end();
   }

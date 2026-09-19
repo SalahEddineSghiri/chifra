@@ -4,7 +4,8 @@ export const SOURCE_QUEUE = "source-extraction";
 export const SOURCE_JOB_ATTEMPTS = 3;
 export type SourceJob = { sourceId: string };
 export type ReconciliationJob = { reconciliationJobId: string; batchId: string };
-export type QueueJob = SourceJob | ReconciliationJob;
+export type AuditJob = { auditJobId: string; batchId: string };
+export type QueueJob = SourceJob | ReconciliationJob | AuditJob;
 
 export function redisConnection() {
   return { host: process.env.REDIS_HOST ?? "redis", port: 6379 };
@@ -31,6 +32,16 @@ export async function enqueueReconciliation(
 ) {
   await queue.add("reconcile", { reconciliationJobId, batchId }, {
     jobId: `reconciliation-${reconciliationJobId}`,
+    attempts: SOURCE_JOB_ATTEMPTS,
+    backoff: { type: "exponential", delay: 2_000 },
+    removeOnComplete: true,
+    removeOnFail: 100,
+  });
+}
+
+export async function enqueueAudit(queue: Queue<QueueJob>, auditJobId: string, batchId: string) {
+  await queue.add("audit", { auditJobId, batchId }, {
+    jobId: `audit-${auditJobId}`,
     attempts: SOURCE_JOB_ATTEMPTS,
     backoff: { type: "exponential", delay: 2_000 },
     removeOnComplete: true,

@@ -16,14 +16,18 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.server.json ./
 COPY apps/server/src ./apps/server/src
+COPY reference-data ./reference-data
 COPY tests/batches.test.mjs ./tests/batches.test.mjs
 COPY tests/bank-statements.test.mjs ./tests/bank-statements.test.mjs
 COPY tests/bank-csv.test.mjs ./tests/bank-csv.test.mjs
 COPY tests/observations.test.mjs ./tests/observations.test.mjs
 COPY tests/batch-ingestion.test.mjs ./tests/batch-ingestion.test.mjs
+COPY tests/audit-engine.test.mjs ./tests/audit-engine.test.mjs
+COPY tests/audit.test.mjs ./tests/audit.test.mjs
 COPY tests/consolidation.test.mjs ./tests/consolidation.test.mjs
 COPY tests/reconciliation-engine.test.mjs ./tests/reconciliation-engine.test.mjs
 COPY tests/reconciliation.test.mjs ./tests/reconciliation.test.mjs
+COPY tests/reference-data.test.mjs ./tests/reference-data.test.mjs
 COPY tests/uploads.test.mjs ./tests/uploads.test.mjs
 COPY tests/xlsx.test.mjs ./tests/xlsx.test.mjs
 COPY tests/xlsx-upload.test.mjs ./tests/xlsx-upload.test.mjs
@@ -38,4 +42,5 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist/server ./dist/server
+COPY --from=build /app/reference-data ./reference-data
 CMD ["node", "dist/server/api.js"]

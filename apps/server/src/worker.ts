@@ -11,16 +11,19 @@ import { extractXlsx, XLSX_PARSER_VERSION } from "./xlsx.js";
 import { OCR_VERSION } from "./ocr.js";
 import { OBSERVATION_PARSER_VERSION } from "./observations.js";
 import {
-  enqueueReconciliation, enqueueSource, redisConnection, SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE,
-  type QueueJob, type ReconciliationJob,
+  enqueueAudit, enqueueReconciliation, enqueueSource, redisConnection,
+  SOURCE_JOB_ATTEMPTS, SOURCE_QUEUE, type AuditJob, type QueueJob, type ReconciliationJob,
 } from "./queue.js";
 import { runReconciliation } from "./reconciliation-store.js";
+import { runAudit } from "./audit-store.js";
+import { loadReferenceData, type ReferenceData } from "./reference-data.js";
 
 const jobSchema = z.strictObject({ sourceId: z.uuid() });
 const reconciliationJobSchema = z.strictObject({
   reconciliationJobId: z.uuid(),
   batchId: z.uuid(),
 });
+const auditJobSchema = z.strictObject({ auditJobId: z.uuid(), batchId: z.uuid() });
 const DOCUMENT_MEDIA = ["application/pdf", "image/jpeg"] as const;
 const XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const SUPPORTED_MEDIA = [...DOCUMENT_MEDIA, XLSX_MEDIA] as const;
@@ -133,7 +136,48 @@ async function runReconciliationJob(pool: Pool, job: Job<QueueJob>) {
   }
 }
 
-async function runJob(pool: Pool, sourceDir: string, job: Job<QueueJob>) {
+async function runAuditJob(pool: Pool, job: Job<QueueJob>, reference: ReferenceData) {
+  const data: AuditJob = auditJobSchema.parse(job.data);
+  const claimed = await pool.query(
+    `UPDATE audit_jobs
+        SET status = 'PROCESSING', failure_reason = NULL, started_at = COALESCE(started_at, now())
+      WHERE id = $1 AND batch_id = $2 AND status IN ('PENDING', 'PROCESSING')
+      RETURNING id`,
+    [data.auditJobId, data.batchId],
+  );
+  if (claimed.rowCount === 0) return;
+  try {
+    await runAudit(pool, data.batchId, data.auditJobId, reference);
+    await pool.query(
+      `UPDATE audit_jobs
+          SET status = 'COMPLETED', completed_at = now(), failure_reason = NULL
+        WHERE id = $1`,
+      [data.auditJobId],
+    );
+  } catch (error) {
+    const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? SOURCE_JOB_ATTEMPTS);
+    await pool.query(
+      `UPDATE audit_jobs
+          SET status = $2, failure_reason = $3,
+              completed_at = CASE WHEN $2 = 'FAILED' THEN now() ELSE NULL END
+        WHERE id = $1`,
+      [data.auditJobId, finalAttempt ? "FAILED" : "PENDING",
+        finalAttempt ? "Erreur technique interne après 3 tentatives." : null],
+    );
+    throw error;
+  }
+}
+
+async function runJob(
+  pool: Pool,
+  sourceDir: string,
+  job: Job<QueueJob>,
+  reference: ReferenceData,
+) {
+  if (job.name === "audit") {
+    await runAuditJob(pool, job, reference);
+    return;
+  }
   if (job.name === "reconcile") {
     await runReconciliationJob(pool, job);
     return;
@@ -156,6 +200,11 @@ async function enqueuePending(pool: Pool, queue: Queue<QueueJob>) {
   for (const row of reconciliationJobs.rows) {
     await enqueueReconciliation(queue, row.id, row.batch_id);
   }
+  const auditJobs = await pool.query<{ id: string; batch_id: string }>(
+    `SELECT id, batch_id FROM audit_jobs
+      WHERE status = 'PENDING' ORDER BY created_at LIMIT 100`,
+  );
+  for (const row of auditJobs.rows) await enqueueAudit(queue, row.id, row.batch_id);
 }
 
 export async function startSourceWorker(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) {
@@ -163,6 +212,7 @@ export async function startSourceWorker(pool: Pool, queue: Queue<QueueJob>, sour
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4) {
     throw new Error("WORKER_CONCURRENCY doit être entre 1 et 4");
   }
+  const reference = loadReferenceData();
 
   await pool.query(
     `UPDATE source_files SET status = 'RECEIVED', status_reason = NULL
@@ -226,9 +276,14 @@ export async function startSourceWorker(pool: Pool, queue: Queue<QueueJob>, sour
         SET status = 'PENDING', failure_reason = NULL, completed_at = NULL
       WHERE status = 'PROCESSING'`,
   );
+  await pool.query(
+    `UPDATE audit_jobs
+        SET status = 'PENDING', failure_reason = NULL, completed_at = NULL
+      WHERE status = 'PROCESSING'`,
+  );
   const worker = new Worker<QueueJob>(
     SOURCE_QUEUE,
-    async (job) => runJob(pool, sourceDir, job),
+    async (job) => runJob(pool, sourceDir, job, reference),
     { connection: redisConnection(), concurrency },
   );
   worker.on("failed", (job, error) => {

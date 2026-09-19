@@ -5,10 +5,12 @@ import type { Queue } from "bullmq";
 import type { Pool } from "pg";
 import { z } from "zod";
 import { registerBankStatementRoutes } from "./bank-statements.js";
+import { registerAuditRoutes } from "./audit.js";
 import { registerDocumentRoutes } from "./documents.js";
 import { registerReconciliationRoutes } from "./reconciliation.js";
 import type { QueueJob } from "./queue.js";
 import { registerSourceRoutes } from "./sources.js";
+import { loadReferenceData } from "./reference-data.js";
 
 const createBatchSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
@@ -31,6 +33,7 @@ function serializeBatch(row: BatchRow) {
 }
 
 export function buildApp(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) {
+  const reference = loadReferenceData();
   const app = Fastify({ logger: true, bodyLimit: 16 * 1024 * 1024 });
   app.register(multipart, { limits: { files: 1, parts: 1, fileSize: 15 * 1024 * 1024 } });
 
@@ -65,5 +68,6 @@ export function buildApp(pool: Pool, queue: Queue<QueueJob>, sourceDir: string) 
   registerBankStatementRoutes(app, pool);
   registerDocumentRoutes(app, pool);
   registerReconciliationRoutes(app, pool, queue);
+  registerAuditRoutes(app, pool, queue, reference);
   return app;
 }

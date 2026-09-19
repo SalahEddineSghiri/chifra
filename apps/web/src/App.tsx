@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BankStatements } from "./BankStatements";
 import { Documents } from "./Documents";
 import { Reconciliation } from "./Reconciliation";
+import { Audit } from "./Audit";
 
 const batchSchema = z.object({
   id: z.string().uuid(),
@@ -456,6 +457,11 @@ export function App() {
           />
           <Reconciliation
             key={`reconciliation-${selectedBatch.id}`}
+            batchId={selectedBatch.id}
+            batchStatus={selectedBatch.status}
+          />
+          <Audit
+            key={`audit-${selectedBatch.id}`}
             batchId={selectedBatch.id}
             batchStatus={selectedBatch.status}
           />

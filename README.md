@@ -26,7 +26,7 @@ Node 24 LTS remplace Node 20 recommandé par le cahier, car Node 20 est arrivé 
 
 Le Compose définit PostgreSQL 16, Redis 7, l’API, le worker et l’interface sur un réseau propre à Chiffra. L’API et le worker utilisent la même image avec des processus distincts. Seule l’interface est publiée sur `127.0.0.1` ; PostgreSQL et Redis ne publient aucun port. Les volumes conservent la base, Redis et les sources entre redémarrages.
 
-Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 10. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page ou ligne, observations, pièces métier, relations entre représentations, preuves de calcul et allocations bancaires.
+Au démarrage, une base neuve reçoit la migration 1, puis le service ponctuel `migrate` applique les migrations 2 à 11. Sur un volume existant, il applique seulement les migrations manquantes. Les tables séparent les sources physiques, extractions versionnées, segments avec page ou ligne, observations, pièces métier, relations entre représentations, preuves de calcul, allocations bancaires et résultats d'audit.
 
 La confiance reste `NULL`, car le parcours actuel ne collecte pas une mesure suffisamment fiable pour la publier. Le motif d’un état terminal est conservé. Au premier démarrage de cette version, le worker reprend les traitements interrompus et recalcule les observations créées par une ancienne version du parseur.
 
@@ -76,6 +76,22 @@ docker compose exec -T api node dist/server/replay-reconciliation.js <preuve>
 
 Le résultat contient `"verified":true` lorsque la sortie rejouée est identique à la preuve persistée.
 
+## Contrôles comptables et fiscaux EX-04
+
+Après consolidation, le bouton « Lancer les contrôles » crée un travail BullMQ. Le worker exécute le moteur pur `audit-v1` avec les référentiels versionnés de `reference-data/v1`. L'API reste disponible pendant le traitement. Une demande répétée ou simultanée réutilise le même travail et la même preuve ; un travail technique en échec peut être relancé sans dupliquer les résultats.
+
+Les contrôles distinguent la cohérence interne HT, taux imprimé, TVA et TTC de la conformité au taux fournisseur fourni. Ils couvrent aussi les mentions obligatoires, la période du 1er janvier au 30 juin 2026, les fournisseurs inconnus, le plan comptable, les montants strictement supérieurs à dix fois la moyenne fournisseur, les doublons exacts ou probables et les conflits de sources. Les valeurs observées restent séparées des valeurs de référence. Un taux ou un montant absent rend uniquement le contrôle concerné non évaluable ; aucune valeur n'est complétée.
+
+Les écarts monétaires conservent leur signe et leur valeur absolue. L'interface affiche la pièce et ses sources, le référentiel appliqué, les versions du moteur et des règles, la convention d'arrondi et l'identifiant de preuve. Elle ne produit pas de total financier global par addition des anomalies d'une même pièce. L'application des avoirs à leur facture d'origine, la décision humaine et les explications agentiques restent des étapes ultérieures.
+
+Cette commande rejoue une preuve d'audit sans modifier les résultats :
+
+```sh
+docker compose exec -T api node dist/server/replay-audit.js <preuve>
+```
+
+Le résultat contient `"verified":true` lorsque les entrées, les référentiels disponibles et la sortie recalculée correspondent à la preuve persistée.
+
 ## Données et référentiels fournis
 
 Les documents privés du handoff ne sont pas nécessaires au démarrage de la version actuelle et ne sont pas inclus dans le dépôt. Leur usage actuel et futur est explicite :
@@ -85,11 +101,11 @@ Les documents privés du handoff ne sont pas nécessaires au démarrage de la ve
 | README du jeu de données | Oui, pour inventorier le corpus et ses scénarios | Non | Non | Guide de couverture et de recette du corpus |
 | Pièces comptables | Oui, avec chargements manuels de pièces de recette | Non | Seulement lorsqu'un utilisateur les dépose | Tests de régression d'ingestion sur le corpus |
 | Relevés bancaires | Oui, format et scénarios contrôlés | Uniquement lorsqu'un utilisateur dépose un CSV | Oui, import versionné, montants exacts, classification, contrôle du solde et rapprochement EX-03 | Enrichissement des scénarios du corpus |
-| `plan-comptable.csv` | Oui | Non | Non | Référentiel versionné pour les propositions comptables |
-| `referentiel-fournisseurs.csv` | Oui | Non | Non | Référentiel versionné pour les contrôles et propositions fournisseur |
-| `regles-fiscales.md` | Oui | Non | Non | Règles fiscales déterministes, identifiées et versionnées |
+| `plan-comptable.csv` | Oui | Oui, dans `reference-data/v1` | Oui, validation des comptes dans EX-04 | Élargissement selon les besoins du corpus |
+| `referentiel-fournisseurs.csv` | Oui | Oui, dans `reference-data/v1` | Oui, identification exacte, taux, compte et moyenne dans EX-04 | Propositions soumises à revue humaine |
+| `regles-fiscales.md` | Oui | Oui, dans `reference-data/v1` | Oui, version et empreinte vérifiées ; règles EX-04 exécutées par le moteur déterministe | Avoirs et décisions humaines |
 
-Les tests OCR utilisent des fixtures synthétiques suivies dans `tests/fixtures`, décrites dans leur README. Le code ne dépend ni de `DOC-001`, ni d'un nom de fichier du corpus. Lorsqu'un référentiel deviendra nécessaire à l'exécution, sa version exploitable et son chargement reproductible devront être ajoutés au dépôt. Les observations extraites resteront séparées des informations de référence ; un référentiel ne complétera jamais silencieusement une valeur absente sur la pièce.
+Les tests OCR utilisent des fixtures synthétiques suivies dans `tests/fixtures`, décrites dans leur README. Le code ne dépend ni de `DOC-001`, ni d'un nom de fichier du corpus. Les trois référentiels nécessaires à EX-04 sont inclus dans l'image serveur, validés au démarrage et identifiés par leur empreinte SHA-256. Les observations extraites restent séparées des informations de référence ; un référentiel ne complète jamais silencieusement une valeur absente sur la pièce.
 
 ## Tests avec Docker
 
@@ -107,10 +123,10 @@ docker compose -f compose.test.yaml build
 docker compose -f compose.test.yaml run --rm e2e_tests
 ```
 
-La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un lot synthétique de 50 documents, un PDF texte, un PDF scanné français, des JPG français, anglais, ambigu et illisible, un XLSX d'achats, la consolidation sans double comptage, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Le scénario arabe est conservé mais reporté. Les tests EX-03 couvrent le regroupement de trois factures, un acompte et son solde, la limite de 60 jours, les associations ambiguës, les exclusions, les avoirs hors calcul, la borne de recherche et deux lancements concurrents. Le test final charge un JPG français, un XLSX et un relevé CSV par le Nginx du service web, ferme le lot, lance le rapprochement puis vérifie l'API, le worker, la preuve de calcul et le stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
+La dernière commande exécute aussi les tests SQL, du contrat et du serveur dont elle dépend. Elle vérifie un lot synthétique de 50 documents, un PDF texte, un PDF scanné français, des JPG français, anglais, ambigu et illisible, un XLSX d'achats, la consolidation sans double comptage, une erreur technique OCR après trois tentatives, ainsi que la reprise idempotente. Le scénario arabe est conservé mais reporté. Les tests EX-03 couvrent le regroupement de trois factures, un acompte et son solde, la limite de 60 jours, les associations ambiguës, les exclusions, les avoirs hors calcul, la borne de recherche et deux lancements concurrents. Les tests EX-04 chargent les référentiels réellement livrés et couvrent les écarts fiscaux positifs et négatifs, la cohérence interne, les bornes de période, les fournisseurs et montants inconnus, le seuil aberrant, les comptes et les doublons sans fusion. Le test final charge un JPG français, un XLSX et un relevé CSV par le Nginx du service web, ferme le lot, lance le rapprochement et l'audit, puis vérifie l'API, le worker, les preuves et le stockage PostgreSQL. Ces tests utilisent leurs propres services et volume. Pour les retirer :
 
 ```sh
 docker compose -f compose.test.yaml down -v
 ```
 
-Le rapprochement EX-03 est disponible. Les contrôles comptables et fiscaux, l'orchestration LangGraph, l'Explainer et la décision de revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.
+Le rapprochement EX-03 et les contrôles comptables et fiscaux EX-04 sont disponibles. L'application des avoirs, l'orchestration LangGraph, l'Explainer et la décision de revue humaine seront ajoutés dans les étapes fonctionnelles suivantes.
