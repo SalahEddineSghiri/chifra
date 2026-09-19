@@ -201,7 +201,7 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     assert.deepEqual(arabic.observations.amountHt.normalization, []);
 
     const arabicScanId = await upload(
-      app, batchId, makeImagePdf(arabicJpeg, 2400, 1700),
+      app, batchId, makeImagePdf(arabicJpeg, 2600, 2100),
       "scan-arabe.pdf", "application/pdf",
     );
     await waitForStatus(pool, arabicScanId, "DONE");

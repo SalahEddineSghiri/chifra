@@ -312,7 +312,7 @@ export function extractInvoiceObservations(segments: PageText[]): InvoiceObserva
       add("amountHt", amountFromLine(lines, index), line);
     }
 
-    if (/(?:^TVA\b|الضريبة\s+على\s+القيمة\s+المضافة)/iu.test(text)) {
+    if (/(?:^TVA\b|(?:الضريبة\s+على|ضريبة)\s+القيمة\s+المضافة)/iu.test(text)) {
       const ratePattern = new RegExp(
         `(${digitSequence}{1,2}(?:[,.٫]${digitSequence}{1,2})?)\\s*[٪%]`, "u",
       );
