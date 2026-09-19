@@ -38,6 +38,8 @@ Le worker traite au plus deux sources en parallèle par défaut, avec une valeur
 
 Les chiffres occidentaux, arabo-indiens et persans ainsi que les séparateurs décimaux et de milliers pris en charge sont normalisés en chaînes décimales. Les composantes de date reconnues sur un chiffre sont complétées par un zéro avec une transformation explicite. La valeur OCR brute et la liste des transformations restent stockées. La reconnaissance des glyphes arabo-indiens dépend de la qualité de l'image et du moteur : une séquence mal reconnue reste absente ou observée telle quelle, sans reconstruction supposée. La reconnaissance d'un texte arabe ne garantit pas l'extraction complète des champs métier : le statut des observations et les candidats permettent de conserver les absences et ambiguïtés.
 
+Le parseur `labels-v3` distingue le montant TVA du taux, y compris lorsque le texte OCR place le taux après le montant (`1560.00 20%`). Les marques Unicode de direction sont ignorées pour reconnaître les libellés ; le texte source reste conservé. Un libellé absent n'est pas reconstitué. Les tests unitaires du parseur ne remplacent pas les tests Docker avec Tesseract réel.
+
 ## Données et référentiels fournis
 
 Les documents privés du handoff ne sont pas nécessaires au démarrage de la version actuelle et ne sont pas inclus dans le dépôt. Leur usage actuel et futur est explicite :

@@ -99,3 +99,48 @@ test("un champ ambigu ou absent reste nul et conserve ses candidats", () => {
   assert.deepEqual(result.fields.amountTtc.candidates, []);
   assert.equal(result.fields.amountTtc.reviewRequired, false);
 });
+
+test("le taux placé après le montant TVA ne fait pas partie du montant", () => {
+  for (const text of [
+    "ضريبة القيمة المضافة\n1560.00 20%",
+    "TVA 1560.00 20%",
+    "الضريبة على القيمة المضافة\n١٬٥٦٠٫٠٠ ٢٠٪",
+    "TVA 1560.00 20.00%",
+    "\u200fTVA 1560.00 20\u200e%",
+  ]) {
+    const result = extractInvoiceObservations([segment(text)]);
+    assert.equal(result.fields.vatAmount.value, "1560.00", text);
+    assert.ok(!result.fields.vatAmount.rawValue.includes("%"));
+    assert.ok(!result.fields.vatAmount.rawValue.includes("٪"));
+    assert.equal(result.fields.printedVatRate.value, text.includes("20.00%") ? "20.00" : "20");
+  }
+});
+
+test("les marques de direction restent dans la source et n'empêchent pas les libellés", () => {
+  const input = segment([
+    "شركة المثال العربية", "المعرف الموحد للمقاولة", "005678901000091",
+    "فاتورة رقم", "\u200eAR-2026-0001\u200f", "\u200fالتاريخ", "\u200f2026-01-3",
+    "\u200fمعرف الزبون", "001987654000073", "المجموع دون الضريبة", "7800.00",
+    "ضريبة القيمة المضافة", "1560.00 20%", "المجموع مع الضريبة", "9360.00",
+  ].join("\n"));
+  const before = structuredClone(input);
+  const result = extractInvoiceObservations([input]);
+  assert.equal(result.status, "COMPLETE");
+  assert.equal(result.fields.invoiceNumber.value, "AR-2026-0001");
+  assert.equal(result.fields.issuedOn.value, "2026-01-03");
+  assert.equal(result.fields.vatAmount.value, "1560.00");
+  assert.equal(result.fields.vatAmount.rawValue, "1560.00");
+  assert.deepEqual(result.fields.vatAmount.normalization, []);
+  assert.deepEqual(input, before);
+});
+
+test("sans libellé TVA reconnu, aucun montant ni taux n'est attribué", () => {
+  const result = extractInvoiceObservations([segment([
+    "المجموع دون الضريبة", "7800.00", "1560.00 20%",
+    "المجموع مع الضريبة", "9360.00",
+  ].join("\n"))]);
+  assert.equal(result.fields.amountHt.value, "7800.00");
+  assert.equal(result.fields.vatAmount.value, null);
+  assert.equal(result.fields.printedVatRate.value, null);
+  assert.equal(result.fields.amountTtc.value, "9360.00");
+});

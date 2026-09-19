@@ -96,6 +96,15 @@ async function upload(app, batchId, content, filename, mediaType) {
   return response.json().source.id;
 }
 
+function assertComplete(source) {
+  assert.equal(source.observationStatus, "COMPLETE", JSON.stringify({
+    filename: source.filename,
+    text: source.textPreview,
+    fields: source.observations,
+    extractions: source.extractions,
+  }, null, 2));
+}
+
 async function readSource(app, batchId, sourceId) {
   const response = await app.inject({ method: "GET", url: `/api/batches/${batchId}/sources` });
   assert.equal(response.statusCode, 200);
@@ -147,7 +156,7 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     const jpg = await readSource(app, batchId, jpgId);
     assert.equal(jpg.mediaType, "image/jpeg");
     assert.deepEqual(jpg.extractions.map((item) => item.method), ["OCR"]);
-    assert.equal(jpg.observationStatus, "COMPLETE");
+    assertComplete(jpg);
     assert.equal(jpg.observations.amountTtc.value, "9360.00");
     assert.equal(jpg.observations.amountTtc.rawValue, "9360.00");
     assert.equal(jpg.observations.amountTtc.page, 1);
@@ -186,7 +195,7 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     await waitForStatus(pool, arabicId, "DONE");
     const arabic = await readSource(app, batchId, arabicId);
     assert.match(arabic.textPreview, /شركة المثال العربية/u);
-    assert.equal(arabic.observationStatus, "COMPLETE");
+    assertComplete(arabic);
     assert.equal(arabic.observations.supplierName.value, "شركة المثال العربية");
     assert.equal(arabic.observations.supplierIce.value, "005678901000091");
     assert.equal(arabic.observations.customerIce.value, "001987654000073");
@@ -218,7 +227,7 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
     await waitForStatus(pool, mixedId, "DONE");
     const mixed = await readSource(app, batchId, mixedId);
     assert.match(mixed.textPreview, /شركة المثال المختلطة/u);
-    assert.equal(mixed.observationStatus, "COMPLETE");
+    assertComplete(mixed);
     assert.equal(mixed.observations.supplierName.value, "شركة المثال المختلطة");
     assert.equal(mixed.observations.invoiceNumber.value, "MX-2026-0001");
     assert.equal(mixed.observations.issuedOn.value, "2026-01-04");
@@ -295,17 +304,17 @@ test("PDF texte, OCR PDF/JPG, ambiguïtés, erreurs et reprise idempotente", asy
 
     await closeWorker();
     await pool.query(
-      "UPDATE source_observations SET parser_version = 'labels-v1' WHERE source_id = $1",
+      "UPDATE source_observations SET parser_version = 'labels-v2' WHERE source_id = $1",
       [jpgId],
     );
     closeWorker = await startSourceWorker(pool, queue, sourceDir);
     for (let attempt = 0; attempt < 300; attempt += 1) {
       const reparsed = await readSource(app, batchId, jpgId);
-      if (reparsed.observationVersion === "labels-v2" && reparsed.status === "DONE") break;
+      if (reparsed.observationVersion === "labels-v3" && reparsed.status === "DONE") break;
       await sleep(100);
     }
     const reparsed = await readSource(app, batchId, jpgId);
-    assert.equal(reparsed.observationVersion, "labels-v2");
+    assert.equal(reparsed.observationVersion, "labels-v3");
     const afterParserReplay = await pool.query(
       "SELECT count(*)::int AS count FROM source_extractions WHERE source_id = $1",
       [jpgId],

@@ -45,7 +45,7 @@ test("parcours JPG mixte via Nginx, API, worker et PostgreSQL", async () => {
   }
   assert.equal(source?.status, "DONE");
   assert.equal(source.extractionMethod, "OCR");
-  assert.equal(source.observationStatus, "COMPLETE");
+  assert.equal(source.observationStatus, "COMPLETE", JSON.stringify(source, null, 2));
   assert.match(source.textPreview, /شركة المثال المختلطة/u);
   assert.equal(source.observations.supplierName.value, "شركة المثال المختلطة");
   assert.equal(source.observations.invoiceNumber.value, "MX-2026-0001");
